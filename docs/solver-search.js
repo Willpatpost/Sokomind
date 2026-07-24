@@ -487,25 +487,68 @@ function fessPackingOrder(board) {
 }
 
 function fessConnectivityRegions(boxes, board) {
-  const occupied = new Set(boxes.map(([y, x]) => pkey(y, x)));
-  const unseen = new Set([...board.floor].filter(position => !occupied.has(position)));
+  const {dense} = board;
+  const occupied = denseBoxLayout(boxes, board).indexByCell;
+  const seen = new Uint8Array(dense.keys.length);
+  const queue = new Uint32Array(dense.keys.length);
   let regions = 0;
-  while (unseen.size) {
+  for (let start = 0; start < dense.keys.length; start++) {
+    if (occupied[start] >= 0 || seen[start]) continue;
     regions++;
-    const start = unseen.values().next().value;
-    const queue = [start];
-    unseen.delete(start);
-    for (let head = 0; head < queue.length; head++) {
-      const [y, x] = queue[head].split(",").map(Number);
-      for (const [, [dy, dx]] of DIRECTION_ENTRIES) {
-        const next = pkey(y + dy, x + dx);
-        if (!unseen.has(next)) continue;
-        unseen.delete(next);
-        queue.push(next);
+    let head = 0, tail = 1;
+    queue[0] = start;
+    seen[start] = 1;
+    while (head < tail) {
+      const current = queue[head++];
+      for (let direction = 0; direction < DIRECTION_ENTRIES.length; direction++) {
+        const next = dense.neighbors[current * DIRECTION_ENTRIES.length + direction];
+        if (next < 0 || occupied[next] >= 0 || seen[next]) continue;
+        seen[next] = 1;
+        queue[tail++] = next;
       }
     }
   }
   return regions;
+}
+
+function fessAccessBlockers(boxes, board, context) {
+  const started = now();
+  board.metrics.goalAccessCalls++;
+  const signature = boxSignature(boxes, board);
+  if (context.accessMemo.has(signature)) {
+    board.metrics.goalAccessCacheHits++;
+    return context.accessMemo.get(signature);
+  }
+  const occupied = new Map(
+    boxes.map(([y, x, label]) => [pkey(y, x), label]),
+  );
+  const blockers = new Set();
+  let blockedGoals = 0;
+  for (const entry of board.topology.goalAccess) {
+    if (occupied.get(entry.goal) === entry.label) continue;
+    let openLanes = 0;
+    const goalBlockers = [];
+    for (const lane of entry.lanes) {
+      const sourceLabel = occupied.get(lane.source);
+      const supportLabel = occupied.get(lane.support);
+      if (supportLabel === undefined &&
+          (sourceLabel === undefined || sourceLabel === entry.label)) {
+        openLanes++;
+        continue;
+      }
+      if (sourceLabel !== undefined && sourceLabel !== entry.label) {
+        goalBlockers.push(lane.source);
+      }
+      if (supportLabel !== undefined) goalBlockers.push(lane.support);
+    }
+    if (!openLanes && entry.lanes.length) {
+      blockedGoals++;
+      for (const blocker of goalBlockers) blockers.add(blocker);
+    }
+  }
+  board.metrics.goalAccessBlockedGoals += blockedGoals;
+  board.metrics.goalAccessMs += now() - started;
+  return memoizeBounded(context.accessMemo, signature, blockers, 5000);
 }
 
 function fessFeatureValues(state, board, context, reachable = reachablePaths(state, board)) {
@@ -523,10 +566,7 @@ function fessFeatureValues(state, board, context, reachable = reachablePaths(sta
       .filter(room => occupied.has(room.gate))
       .map(room => room.gate),
   ).size;
-  const goalAccess = goalAccessAnalysis(state.boxes, board);
-  const accessBlockers = new Set(
-    goalAccess.blockedGoals.flatMap(goalState => [...goalState.blockers]),
-  );
+  const accessBlockers = fessAccessBlockers(state.boxes, board, context);
   const schedule = context.doorwayTasks.length
     ? doorwayScheduleState(state.boxes, board, context.doorwayTasks)
     : null;
@@ -585,6 +625,228 @@ function fessAdvisor(parent, child, movedIndex, target, board) {
   return signals;
 }
 
+const FESS_STATE_CHUNK = 1024;
+const FESS_PATH_CHUNK = 65536;
+const FESS_MOVE_ID = new Map(
+  DIRECTION_ENTRIES.map(([move], index) => [move, index]),
+);
+
+class FessActionHeap {
+  constructor() {
+    this.ranks = [];
+    this.stateIds = [];
+  }
+  push(rank, stateId) {
+    const ranks = this.ranks, stateIds = this.stateIds;
+    let index = ranks.length;
+    ranks.push(rank);
+    stateIds.push(stateId);
+    while (index) {
+      const parent = (index - 1) >> 1;
+      if (ranks[parent] <= rank) break;
+      ranks[index] = ranks[parent];
+      stateIds[index] = stateIds[parent];
+      index = parent;
+    }
+    ranks[index] = rank;
+    stateIds[index] = stateId;
+  }
+  pop() {
+    const ranks = this.ranks, stateIds = this.stateIds;
+    if (!ranks.length) return null;
+    const rank = ranks[0], stateId = stateIds[0];
+    const lastRank = ranks.pop(), lastStateId = stateIds.pop();
+    if (ranks.length) {
+      let index = 0;
+      while (true) {
+        let child = index * 2 + 1;
+        if (child >= ranks.length) break;
+        if (child + 1 < ranks.length && ranks[child + 1] < ranks[child]) child++;
+        if (ranks[child] >= lastRank) break;
+        ranks[index] = ranks[child];
+        stateIds[index] = stateIds[child];
+        index = child;
+      }
+      ranks[index] = lastRank;
+      stateIds[index] = lastStateId;
+    }
+    return {rank, stateId};
+  }
+  compact(isLive) {
+    const live = [];
+    for (let index = 0; index < this.ranks.length; index++) {
+      if (isLive(this.stateIds[index], this.ranks[index])) {
+        live.push([this.ranks[index], this.stateIds[index]]);
+      }
+    }
+    const removed = this.ranks.length - live.length;
+    this.ranks = [];
+    this.stateIds = [];
+    for (const [rank, stateId] of live) this.push(rank, stateId);
+    return removed;
+  }
+  get length() { return this.ranks.length; }
+}
+
+function createFessStateArena(board, initialBoxes) {
+  const boxCount = initialBoxes.length;
+  const labels = initialBoxes.map(([, , label]) => label);
+  const chunks = [], pathChunks = [];
+  let size = 0, pathSize = 0;
+  const createChunk = () => {
+    const chunk = {
+      robot: new Uint32Array(FESS_STATE_CHUNK),
+      boxes: new Uint32Array(FESS_STATE_CHUNK * boxCount),
+      cost: new Uint32Array(FESS_STATE_CHUNK),
+      moves: new Uint32Array(FESS_STATE_CHUNK),
+      weight: new Uint32Array(FESS_STATE_CHUNK),
+      parent: new Int32Array(FESS_STATE_CHUNK),
+      pathStart: new Uint32Array(FESS_STATE_CHUNK),
+      pathLength: new Uint32Array(FESS_STATE_CHUNK),
+      rank: new Float64Array(FESS_STATE_CHUNK),
+      packing: new Uint32Array(FESS_STATE_CHUNK),
+      connectivity: new Uint32Array(FESS_STATE_CHUNK),
+      roomConnectivity: new Uint32Array(FESS_STATE_CHUNK),
+      outOfPlan: new Uint32Array(FESS_STATE_CHUNK),
+      mobility: new Uint32Array(FESS_STATE_CHUNK),
+      estimate: new Float64Array(FESS_STATE_CHUNK),
+      queued: new Uint8Array(FESS_STATE_CHUNK),
+    };
+    chunk.parent.fill(-1);
+    chunks.push(chunk);
+    return chunk;
+  };
+  const appendPath = segment => {
+    const start = pathSize;
+    for (const move of segment) {
+      const chunkIndex = Math.floor(pathSize / (FESS_PATH_CHUNK * 4));
+      const packedOffset = pathSize % (FESS_PATH_CHUNK * 4);
+      const offset = packedOffset >>> 2;
+      const shift = (packedOffset & 3) * 2;
+      if (!pathChunks[chunkIndex]) pathChunks[chunkIndex] = new Uint8Array(FESS_PATH_CHUNK);
+      pathChunks[chunkIndex][offset] |= FESS_MOVE_ID.get(move) << shift;
+      pathSize++;
+    }
+    return [start, segment.length];
+  };
+  const locate = id => [chunks[Math.floor(id / FESS_STATE_CHUNK)], id % FESS_STATE_CHUNK];
+  const add = (state, parentId, segment, rank) => {
+    const id = size++;
+    const chunkIndex = Math.floor(id / FESS_STATE_CHUNK);
+    const chunk = chunks[chunkIndex] || createChunk();
+    const offset = id % FESS_STATE_CHUNK;
+    const robot = board.dense.idByKey.get(pkey(state.robot[0], state.robot[1]));
+    const cells = denseBoxLayout(state.boxes, board).cells;
+    const [pathStart, pathLength] = appendPath(segment);
+    chunk.robot[offset] = robot;
+    chunk.boxes.set(cells, offset * boxCount);
+    chunk.cost[offset] = state.cost;
+    chunk.moves[offset] = state.moves;
+    chunk.weight[offset] = state.weight;
+    chunk.parent[offset] = parentId;
+    chunk.pathStart[offset] = pathStart;
+    chunk.pathLength[offset] = pathLength;
+    chunk.rank[offset] = rank;
+    chunk.packing[offset] = state.features.packing;
+    chunk.connectivity[offset] = state.features.connectivity;
+    chunk.roomConnectivity[offset] = state.features.roomConnectivity;
+    chunk.outOfPlan[offset] = state.features.outOfPlan;
+    chunk.mobility[offset] = state.features.mobility;
+    chunk.estimate[offset] = state.features.estimate;
+    chunk.queued[offset] = 1;
+    return id;
+  };
+  const materialize = id => {
+    const [chunk, offset] = locate(id);
+    const boxOffset = offset * boxCount;
+    const boxes = labels.map((label, index) => {
+      const cell = chunk.boxes[boxOffset + index];
+      return [board.dense.y[cell], board.dense.x[cell], label];
+    });
+    const robot = chunk.robot[offset];
+    const packing = chunk.packing[offset];
+    const connectivity = chunk.connectivity[offset];
+    const roomConnectivity = chunk.roomConnectivity[offset];
+    const outOfPlan = chunk.outOfPlan[offset];
+    return {
+      robot: [board.dense.y[robot], board.dense.x[robot]],
+      boxes,
+      cost: chunk.cost[offset],
+      moves: chunk.moves[offset],
+      weight: chunk.weight[offset],
+      features: {
+        packing,
+        connectivity,
+        roomConnectivity,
+        outOfPlan,
+        mobility: chunk.mobility[offset],
+        estimate: chunk.estimate[offset],
+        cell: `${packing}|${connectivity}|${roomConnectivity}|${outOfPlan}`,
+      },
+    };
+  };
+  const reconstruct = id => {
+    const segments = [];
+    for (let current = id; current >= 0;) {
+      const [chunk, offset] = locate(current);
+      const start = chunk.pathStart[offset], length = chunk.pathLength[offset];
+      if (length) segments.push([start, length]);
+      current = chunk.parent[offset];
+    }
+    const path = [];
+    for (let index = segments.length - 1; index >= 0; index--) {
+      const [start, length] = segments[index];
+      for (let position = start; position < start + length; position++) {
+        const chunkIndex = Math.floor(position / (FESS_PATH_CHUNK * 4));
+        const packedOffset = position % (FESS_PATH_CHUNK * 4);
+        const byte = pathChunks[chunkIndex][packedOffset >>> 2];
+        const code = (byte >>> ((packedOffset & 3) * 2)) & 3;
+        path.push(DIRECTION_ENTRIES[code][0]);
+      }
+    }
+    return path;
+  };
+  const metadataBytes = 12 * 4 + 2 * 8 + 1;
+  return {
+    add,
+    materialize,
+    reconstruct,
+    rank: id => {
+      const [chunk, offset] = locate(id);
+      return chunk.rank[offset];
+    },
+    moves: id => {
+      const [chunk, offset] = locate(id);
+      return chunk.moves[offset];
+    },
+    cost: id => {
+      const [chunk, offset] = locate(id);
+      return chunk.cost[offset];
+    },
+    estimate: id => {
+      const [chunk, offset] = locate(id);
+      return chunk.estimate[offset];
+    },
+    isQueued: id => {
+      const [chunk, offset] = locate(id);
+      return chunk.queued[offset] === 1;
+    },
+    markDequeued: id => {
+      const [chunk, offset] = locate(id);
+      chunk.queued[offset] = 0;
+    },
+    get size() { return size; },
+    get pathBytes() { return Math.ceil(pathSize / 4); },
+    get usedBytes() {
+      return size * (metadataBytes + boxCount * 4) + Math.ceil(pathSize / 4);
+    },
+    get allocatedBytes() {
+      return chunks.length * FESS_STATE_CHUNK * (metadataBytes + boxCount * 4) +
+        pathChunks.length * FESS_PATH_CHUNK;
+    },
+  };
+}
+
 function fessSearch(payload) {
   const board = payload.preparedBoard || parse(payload.state);
   const initial = {
@@ -600,10 +862,12 @@ function fessSearch(payload) {
   const context = {
     packingOrder: fessPackingOrder(board),
     doorwayTasks: assignmentDoorwayPlan(initial.boxes, board, true).tasks,
+    accessMemo: new Map(),
   };
   const cells = new Map(), cellOrder = [];
-  const seen = new Map(), queuedBest = new Map();
+  const transpositions = new Map();
   const advisorUses = new Map();
+  const arena = createFessStateArena(board, initial.boxes);
   const maxVisited = payload.maxVisited ?? Infinity;
   const maxDepth = payload.maxDepth ?? Infinity;
   const macroPushes = payload.fessMacroPushes || 12;
@@ -613,11 +877,12 @@ function fessSearch(payload) {
   const progressIntervalMs = payload.progressIntervalMs || 5000;
   let cursor = 0, order = 0, visited = 0, generated = 0;
   let cellVisits = 0, peakFrontier = 0, pendingActions = 0;
+  let staleActions = 0, staleReplacements = 0, heapCompactions = 0;
   let lastProgressAt = now(), bestCheckpoint = null;
 
   const ensureCell = key => {
     if (!cells.has(key)) {
-      cells.set(key, {key, actions: new Heap(), visits: 0});
+      cells.set(key, {key, actions: new FessActionHeap(), visits: 0});
       cellOrder.push(key);
     }
     return cells.get(key);
@@ -628,18 +893,31 @@ function fessSearch(payload) {
     state.features.roomConnectivity * 1000 +
     state.features.connectivity * 100 +
     state.features.estimate;
-  const rememberCheckpoint = state => {
-    state.checkpointRank = checkpointRank(state);
-    if (!bestCheckpoint || state.checkpointRank < bestCheckpoint.checkpointRank ||
-        (state.checkpointRank === bestCheckpoint.checkpointRank &&
-          state.moves < bestCheckpoint.moves)) {
-      bestCheckpoint = state;
+  const rememberCheckpoint = (stateId, state) => {
+    const rank = checkpointRank(state);
+    if (!bestCheckpoint || rank < bestCheckpoint.rank ||
+        (rank === bestCheckpoint.rank && state.moves < bestCheckpoint.moves)) {
+      bestCheckpoint = {stateId, rank, moves: state.moves};
     }
   };
-  const enqueueActions = state => {
+  const compactHeaps = () => {
+    let removed = 0;
+    for (const cell of cells.values()) {
+      removed += cell.actions.compact(stateId => arena.isQueued(stateId));
+    }
+    if (removed) {
+      pendingActions -= removed;
+      staleActions += removed;
+      heapCompactions++;
+    }
+    staleReplacements = 0;
+  };
+  const enqueueActions = stateId => {
+    const state = arena.materialize(stateId);
     const cell = ensureCell(state.features.cell);
     const reachable = reachablePaths(state, board);
     if (createsSealedCorralDeadlock(state, board, reachable)) return;
+    state.features.accessBlockers = fessAccessBlockers(state.boxes, board, context);
     const assignment = cacheDiscoveryAssignmentDetail(state.boxes, board);
     const local = new Set();
     const candidates = [];
@@ -666,7 +944,6 @@ function fessSearch(payload) {
           moves: state.moves + next.path.length,
           weight: state.weight,
           firstPushedFrom: raw.pushedFrom,
-          node: {parent: state.node, segment: next.path},
         };
         if (child.cost > maxDepth) continue;
         const childReachable = reachablePaths(child, board);
@@ -678,6 +955,7 @@ function fessSearch(payload) {
         if (!Number.isFinite(child.features.estimate)) continue;
         candidates.push({
           child,
+          segment: next.path,
           signals: fessAdvisor(state, child, movedIndex, target, board),
         });
       }
@@ -699,24 +977,31 @@ function fessSearch(payload) {
       recommendations.get(choice.candidate).push(reason);
     }
     for (const candidate of candidates) {
-        const {child} = candidate;
+        const {child, segment} = candidate;
         const progress = recommendations.get(candidate) || [];
         const advice = {weight: progress.length ? 0 : 1, progress};
         delete child.firstPushedFrom;
         child.weight += advice.weight;
         const rank = child.weight * 1e9 + child.moves * 1000 + order;
-        const previousQueued = queuedBest.get(child.identity) ?? Infinity;
-        const previousSeen = seen.get(child.identity) ?? Infinity;
-        if (rank >= previousQueued || rank >= previousSeen) continue;
-        queuedBest.set(child.identity, rank);
+        const previous = transpositions.get(child.identity);
+        const previousRank = previous === undefined ? Infinity : arena.rank(previous);
+        if (rank >= previousRank) continue;
+        if (previous !== undefined && arena.isQueued(previous)) {
+          arena.markDequeued(previous);
+          staleReplacements++;
+        }
         for (const reason of advice.progress) {
           advisorUses.set(reason, (advisorUses.get(reason) || 0) + 1);
         }
-        cell.actions.push([rank, order++, {child, rank}]);
+        const childId = arena.add(child, stateId, segment, rank);
+        transpositions.set(child.identity, childId);
+        cell.actions.push(rank, childId);
+        order++;
         generated++;
         pendingActions++;
     }
     peakFrontier = Math.max(peakFrontier, pendingActions);
+    if (staleReplacements >= Math.max(1024, pendingActions >>> 2)) compactHeaps();
   };
   const nextAction = () => {
     if (!cellOrder.length) return null;
@@ -726,10 +1011,13 @@ function fessSearch(payload) {
       cursor = (cursor + 1) % cellOrder.length;
       const cell = cells.get(key);
       while (cell.actions.length) {
-        const action = cell.actions.pop()[2];
+        const action = cell.actions.pop();
         pendingActions--;
-        if (queuedBest.get(action.child.identity) !== action.rank) continue;
-        queuedBest.delete(action.child.identity);
+        if (!arena.isQueued(action.stateId)) {
+          staleActions++;
+          continue;
+        }
+        arena.markDequeued(action.stateId);
         cell.visits++;
         cellVisits++;
         return action;
@@ -744,39 +1032,48 @@ function fessSearch(payload) {
   if (!Number.isFinite(initial.features.estimate)) {
     return {path: null, visited: 0, generated: 0, retained: 0, peakFrontier: 0};
   }
-  seen.set(initial.identity, 0);
-  rememberCheckpoint(initial);
+  const initialId = arena.add(initial, -1, [], 0);
+  arena.markDequeued(initialId);
+  transpositions.set(initial.identity, initialId);
+  rememberCheckpoint(initialId, initial);
   if (goal(initial.boxes, board.goals)) {
     return {path: [], visited: 0, generated: 0, retained: 1, peakFrontier: 0,
+      arenaStates: 1, compactArenaBytes: arena.usedBytes, compactPathBytes: 0,
+      compactArenaAllocatedBytes: arena.allocatedBytes,
       strategy: "FESS"};
   }
-  enqueueActions(initial);
+  enqueueActions(initialId);
 
   while (visited < maxVisited) {
     const action = nextAction();
     if (!action) break;
-    const {child, rank} = action;
-    if (rank >= (seen.get(child.identity) ?? Infinity)) continue;
-    seen.set(child.identity, rank);
+    const {stateId} = action;
+    const child = arena.materialize(stateId);
     visited++;
-    rememberCheckpoint(child);
+    rememberCheckpoint(stateId, child);
     if (goal(child.boxes, board.goals)) {
       return {
-        path: reconstructNodePath(child.node),
+        path: arena.reconstruct(stateId),
         visited,
         generated,
-        retained: seen.size,
+        retained: visited + 1,
         peakFrontier,
         featureCells: cells.size,
         featureCellVisits: cellVisits,
         advisorUses: Object.fromEntries(advisorUses),
+        arenaStates: arena.size,
+        compactArenaBytes: arena.usedBytes,
+        compactArenaAllocatedBytes: arena.allocatedBytes,
+        compactPathBytes: arena.pathBytes,
+        staleActions,
+        heapCompactions,
         bestEstimate: 0,
         bestPushes: child.cost,
         bestMoves: child.moves,
         strategy: "FESS",
       };
     }
-    enqueueActions(child);
+    enqueueActions(stateId);
     const currentTime = now();
     if (visited % progressInterval === 0 ||
         currentTime - lastProgressAt >= progressIntervalMs) {
@@ -788,26 +1085,53 @@ function fessSearch(payload) {
         frontier: pendingActions,
         featureCells: cells.size,
         featureCellVisits: cellVisits,
-        bestEstimate: bestCheckpoint?.features.estimate,
-        bestPushes: bestCheckpoint?.cost,
+        arenaStates: arena.size,
+        compactArenaBytes: arena.usedBytes,
+        compactArenaAllocatedBytes: arena.allocatedBytes,
+        compactPathBytes: arena.pathBytes,
+        staleActions,
+        heapCompactions,
+        bestEstimate: bestCheckpoint === null
+          ? undefined : arena.estimate(bestCheckpoint.stateId),
+        bestPushes: bestCheckpoint === null
+          ? undefined : arena.cost(bestCheckpoint.stateId),
         bestMoves: bestCheckpoint?.moves,
         performance: performanceSnapshot(board.metrics),
       });
     }
   }
+  const checkpointState = bestCheckpoint === null
+    ? null : arena.materialize(bestCheckpoint.stateId);
   return {
     path: null,
     visited,
     generated,
-    retained: seen.size,
+    retained: visited + 1,
     peakFrontier,
     featureCells: cells.size,
     featureCellVisits: cellVisits,
     advisorUses: Object.fromEntries(advisorUses),
-    bestEstimate: bestCheckpoint?.features.estimate,
-    bestPushes: bestCheckpoint?.cost,
+    arenaStates: arena.size,
+    compactArenaBytes: arena.usedBytes,
+    compactArenaAllocatedBytes: arena.allocatedBytes,
+    compactPathBytes: arena.pathBytes,
+    staleActions,
+    heapCompactions,
+    bestEstimate: bestCheckpoint === null
+      ? undefined : arena.estimate(bestCheckpoint.stateId),
+    bestPushes: bestCheckpoint === null
+      ? undefined : arena.cost(bestCheckpoint.stateId),
     bestMoves: bestCheckpoint?.moves,
-    checkpoint: serializeSearchCheckpoint(bestCheckpoint, board),
+    checkpoint: checkpointState && {
+      state: {
+        rows: board.rows,
+        robot: checkpointState.robot,
+        boxes: checkpointState.boxes.map(([y, x, label]) => [pkey(y, x), label]),
+      },
+      path: arena.reconstruct(bestCheckpoint.stateId),
+      cost: checkpointState.cost,
+      estimate: checkpointState.features.estimate,
+    },
     cutoff: visited >= maxVisited,
     terminationReason: visited >= maxVisited ? "state-budget" : "feature-space-exhausted",
   };

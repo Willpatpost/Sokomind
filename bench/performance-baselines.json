@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "reviewedBuild": "2026-07-24.44",
+  "reviewedBuild": "2026-07-24.45",
   "suites": {
     "smoke": {
       "expected": {
@@ -43,6 +43,28 @@
       },
       "memory": {
         "reviewedPeakBytes": 108415016,
+        "maximumFactor": 2.5
+      }
+    },
+    "fess": {
+      "expected": {
+        "cases": 3,
+        "solved": 3,
+        "totalVisited": 1395,
+        "totalGenerated": 6924,
+        "totalRetained": 1398,
+        "maxFrontier": 1822,
+        "transpositionEvictions": 0
+      },
+      "tolerance": {
+        "totalVisited": 0,
+        "totalGenerated": 0,
+        "totalRetained": 0,
+        "maxFrontier": 0,
+        "transpositionEvictions": 0
+      },
+      "memory": {
+        "reviewedPeakBytes": 70000000,
         "maximumFactor": 2.5
       }
     }

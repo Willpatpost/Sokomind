@@ -123,7 +123,7 @@ worker counts, beam widths, state budgets, macros, and ordered strategic phases.
 The browser director builds the portfolio from this report and records the
 rationale in the search log.
 
-On non-extreme boards with at least four boxes, build `2026-07-24.44` also runs a
+On non-extreme boards with at least four boxes, build `2026-07-24.45` also runs a
 true Feature-Space Exploration Search (FESS) discovery lane. Its persistent cells
 track packing-order progress, player connectivity, blocked room connectivity, and
 boxes outside the current plan. The scheduler visits those cells cyclically
@@ -137,9 +137,18 @@ packing order, doorway traffic, access blockers, and advisor rewards all require
 matching labels. Generic `X` boxes and `S` storages remain interchangeable. A
 reviewed isolated Large run finds 158 moves / 46 pushes after 465 expansions and
 2,308 generated states in about one second, identically under reflection and
-rotation. FESS is not yet launched for Extreme/Huge: its retained action frontier
-exceeded the desired memory budget there, so Huge continues to use the established
-structural and exact lanes.
+rotation. Its retained states use chunked typed-array arenas, numeric cell heaps,
+a unified transposition record, and two-bit path storage. The reviewed Large
+compact payload is 211,585 bytes used / 338,944 bytes allocated; the isolated
+process peaked at about 51 MB on the reviewed machine.
+
+FESS is not yet launched for Extreme/Huge, but memory is no longer the reason.
+A 6,000-state Huge diagnostic fell from roughly 1.5 GB to about 104 MB and from
+roughly 44-49 seconds to 30 seconds; its compact state-and-path payload was about
+11 MB. It produced only a 24-push checkpoint, however. The macro variant spent
+about 63 seconds on 413,014 intermediate states and reached only 27 pushes.
+Running either beside the established Huge planner would currently add CPU
+contention without improving its first solution.
 
 The regular **Ultimate Search** mode is still available. It uses a multi-worker
 portfolio that races complementary strategies such as Push Greedy, Weighted Push
@@ -327,7 +336,7 @@ Packing checkpoints retire active bridge work and extreme puzzles run only the t
 best local exact handoffs, allowing the anytime workers to begin earlier. No stored
 solution path or puzzle-specific coordinate is used.
 
-Build `2026-07-24.44` pauses when it finds a replay-valid solution and shows its
+Build `2026-07-24.45` pauses when it finds a replay-valid solution and shows its
 moves, pushes, and combined total before changing the board. **Good enough**
 plays the incumbent; **Keep searching** starts the improvement/proof phase from
 that exact latest incumbent. Solutions are ranked strictly by move count; pushes
@@ -354,7 +363,7 @@ seconds and the 955-move improvement appeared 30 seconds after the initial
 request. These are regression measurements, not universal guarantees or
 optimality claims.
 
-Before any solution reaches the decision popup, build `.44` erases chronological
+Before any solution reaches the decision popup, build `.45` erases chronological
 cycles that return to the exact same robot-and-box state, replaces every walking
 span between retained pushes with a shortest legal route, and removes motion
 after the solved state. The reviewed base, mirrored, and rotated Huge structural

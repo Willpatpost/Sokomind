@@ -1702,6 +1702,18 @@ test("FESS uses label-aware packing cells and solves crossed typed storage", () 
   );
 });
 
+test("compact FESS heaps discard stale actions without changing rank order", () => {
+  const worker = loadWorker();
+  const heap = vm.runInContext("new FessActionHeap()", worker);
+  heap.push(30, 3);
+  heap.push(10, 1);
+  heap.push(20, 2);
+  assert.equal(heap.compact(stateId => stateId !== 2), 1);
+  assert.deepEqual({...heap.pop()}, {rank: 10, stateId: 1});
+  assert.deepEqual({...heap.pop()}, {rank: 30, stateId: 3});
+  assert.equal(heap.pop(), null);
+});
+
 test("FESS keeps the reviewed Large result invariant across transforms", () => {
   const worker = loadWorker();
   const rows = [
@@ -1726,6 +1738,10 @@ test("FESS keeps the reviewed Large result invariant across transforms", () => {
     assert.equal(result.bestPushes, 46);
     assert.equal(result.visited, 465);
     assert.equal(result.generated, 2308);
+    assert.equal(result.arenaStates, result.generated + 1);
+    assert.ok(result.compactArenaBytes < 512 * 1024);
+    assert.ok(result.compactArenaAllocatedBytes < 768 * 1024);
+    assert.ok(result.compactPathBytes < result.compactArenaBytes);
   }
 });
 

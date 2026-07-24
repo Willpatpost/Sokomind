@@ -1511,6 +1511,24 @@ function assignmentDoorwayPlan(boxes, board, discovery = false) {
   return assignment.doorwayPlan;
 }
 
+const DOORWAY_TASK_PARTITION_MEMO = new WeakMap();
+
+function doorwayTaskPartitions(tasks, roomCount) {
+  const cached = DOORWAY_TASK_PARTITION_MEMO.get(tasks);
+  if (cached?.length === roomCount) return cached;
+  const partitions = Array.from({length: roomCount}, () => ({
+    exports: [],
+    imports: [],
+  }));
+  for (const task of tasks) {
+    const partition = partitions[task.roomIndex];
+    if (!partition) continue;
+    partition[task.direction === "export" ? "exports" : "imports"].push(task);
+  }
+  DOORWAY_TASK_PARTITION_MEMO.set(tasks, partitions);
+  return partitions;
+}
+
 function doorwayScheduleState(boxes, board, tasks) {
   const started = now();
   board.metrics.doorwayScheduleCalls++;
@@ -1520,11 +1538,10 @@ function doorwayScheduleState(boxes, board, tasks) {
   let stagingBlockers = 0, strandedExports = 0, blockedImportAccess = 0;
   let packingOrderViolations = 0;
   const occupied = new Set(boxes.map(([y, x]) => pkey(y, x)));
+  const partitions = doorwayTaskPartitions(tasks, board.topology.rooms.length);
   for (let roomIndex = 0; roomIndex < board.topology.rooms.length; roomIndex++) {
     const room = board.topology.rooms[roomIndex];
-    const roomTasks = tasks.filter(task => task.roomIndex === roomIndex);
-    const exports = roomTasks.filter(task => task.direction === "export");
-    const imports = roomTasks.filter(task => task.direction === "import");
+    const {exports, imports} = partitions[roomIndex];
     const pending = exports.filter(task => {
       const [y, x] = boxes[task.boxIndex];
       const position = pkey(y, x);

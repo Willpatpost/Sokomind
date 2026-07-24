@@ -19,6 +19,14 @@ const HUGE_STRUCTURAL_PAYLOAD = {
   targetedMacroExplored: 64,
   progressIntervalMs: 5000,
 };
+const FESS_LARGE_PAYLOAD = {
+  maxDepth: 460,
+  maxVisited: 8000,
+  fessMacros: true,
+  fessMacroPushes: 10,
+  fessMacroExplored: 12,
+  fessMacroResults: 3,
+};
 
 const SUITES = {
   smoke: [
@@ -110,6 +118,32 @@ const SUITES = {
     ...GENERATED_CASES,
   ],
   validation: GENERATED_CASES,
+  fess: [
+    {
+      name: "large compact FESS",
+      level: "large",
+      algorithm: "fess",
+      timeoutMs: 15000,
+      weight: 8,
+      payload: FESS_LARGE_PAYLOAD,
+    },
+    {
+      name: "large mirrored compact FESS",
+      rows: mirrorRows(LEVELS.large),
+      algorithm: "fess",
+      timeoutMs: 15000,
+      weight: 8,
+      payload: FESS_LARGE_PAYLOAD,
+    },
+    {
+      name: "large rotated compact FESS",
+      rows: rotateRows(LEVELS.large),
+      algorithm: "fess",
+      timeoutMs: 15000,
+      weight: 8,
+      payload: FESS_LARGE_PAYLOAD,
+    },
+  ],
   huge: [
     {
       name: "huge structural plan",
@@ -159,7 +193,7 @@ function usage() {
     "Usage: node bench/benchmark.js [options]",
     "",
     "Options:",
-    "  --suite smoke|alpha|validation|huge  Benchmark suite to run (default: smoke).",
+    "  --suite smoke|alpha|validation|fess|huge  Benchmark suite to run (default: smoke).",
     "  --level LEVEL            Run one level from docs/levels.js.",
     "  --algorithm ALGORITHM    Algorithm for --level (default: push-beam).",
     "  --max-visited N          Worker state budget for a single-level run.",

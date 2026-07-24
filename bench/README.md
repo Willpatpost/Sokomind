@@ -25,7 +25,13 @@ and three- and four-box cases:
 node bench/benchmark.js --suite validation --jsonl
 ```
 
-Gate the reviewed smoke and validation counters and heap envelopes:
+Run the compact FESS Large orientation and memory regression suite:
+
+```powershell
+node bench/benchmark.js --suite fess --jsonl
+```
+
+Gate the reviewed smoke, validation, and FESS counters and heap envelopes:
 
 ```powershell
 node bench/performance-gate.js

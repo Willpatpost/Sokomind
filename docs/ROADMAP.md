@@ -13,7 +13,7 @@ to production search.
 Current reference point
 -----------------------
 
-Build 2026-07-24.44 canonicalizes every replay-valid result before presenting it:
+Build 2026-07-24.45 canonicalizes every replay-valid result before presenting it:
 exact repeated-state cycles are erased, walking between the retained pushes is
 replaced by shortest legal walking, and motion after the solved state is removed.
 On the reviewed base, mirrored, and rotated Huge runs this reduces build `.42`'s
@@ -24,8 +24,11 @@ refinement rounds also have a separate, tightly bounded
 move-cost A* lane that may spend up to four temporary pushes when doing so lowers
 the player's moves. It also adds a label-aware FESS discovery lane for non-extreme
 boards. The reviewed Large result is 158 moves / 46 pushes after 465 expansions,
-identical under reflection and rotation. FESS remains disabled on Huge until its
-retained frontier meets the memory gate. The diagnostic 640-move solution remains
+identical under reflection and rotation. Its compact retained payload is 211,585
+bytes, with a roughly 51 MB isolated-process peak. A 6,000-state Huge diagnostic
+now uses about 104 MB instead of roughly 1.5 GB, but reaches only a 24-push
+checkpoint; FESS therefore remains disabled on Huge because of search progress
+and CPU contention rather than memory. The diagnostic 640-move solution remains
 benchmark evidence, not solver input or proof of optimality.
 
 Roadmap rules
@@ -264,12 +267,19 @@ Goal: reduce memory and equivalent work after the first-solution and improvement
 flows are stable.
 
 7. Compact macro-state and path storage
-   Status: Partial; dense identities exist, but macro candidates still retain
-   repeated arrays, objects, and path segments.
+   Status: Partial; FESS retained states and paths are compact in build
+   2026-07-24.45, but the other macro searches still retain repeated arrays,
+   objects, and path segments.
 
    Plan:
    - Store box layouts as packed immutable tokens with one moved-box delta where
      practical.
+   - FESS now stores box cell IDs and scalar metadata in chunked typed arrays,
+     cell heaps as parallel numeric arrays, and movement paths at two bits per
+     direction. Full states are materialized only while being expanded.
+   - Its transposition table points to one arena record, superseded heap entries
+     are marked stale, and a periodic rebuild removes accumulated stale actions
+     without pruning a live state.
    - Replace object parent chains with arena indices and shared encoded move
      segments.
    - Retain full robot paths only for surviving candidates and reconstruct
@@ -286,7 +296,7 @@ flows are stable.
    - Compaction does not increase first-solution time or hide retained memory.
 
 8. Finish adaptive feature-space queues
-   Status: Partial; build 2026-07-24.44 adds true persistent FESS cells, cyclic
+   Status: Partial; build 2026-07-24.45 adds true persistent FESS cells, cyclic
    fair traversal, and accumulated advisor weights. Adaptive cell definitions
    and memory-safe Extreme/Huge operation remain.
 
