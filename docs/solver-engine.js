@@ -4349,7 +4349,8 @@ function expandPushSequences(
   endpoints.push(...queue.slice(head));
   endpoints.sort((left, right) =>
     Number(Boolean(right.macroDecision)) - Number(Boolean(left.macroDecision)) ||
-    right.pushes - left.pushes);
+    right.pushes - left.pushes ||
+    left.path.length - right.path.length);
   const selected = [], destinations = new Set();
   for (const endpoint of endpoints) {
     if (destinations.has(endpoint.pushedTo)) continue;

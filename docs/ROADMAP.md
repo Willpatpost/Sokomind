@@ -13,12 +13,12 @@ to production search.
 Current reference point
 -----------------------
 
-Build 2026-07-23.33 solves Huge with the released structural planner in 3,752
-visited states, 19,689 generated candidates, 330 pushes, and 1,306 player moves.
-The measured run takes about 85-87 seconds and succeeds with a 256 MB V8 heap
-ceiling. The diagnostic solution demonstrates that at least 250 pushes and 640
-moves are possible; it is benchmark evidence, not solver input and not proof of
-optimality.
+Build 2026-07-24.41 compares competing structural routes and solved successors
+by total player moves while retaining push-state compression. In the reviewed
+Huge configuration it improves the raw structural result from 1,306 moves /
+330 pushes to 1,216 moves / 324 pushes. A bounded rewrite of that new incumbent
+reaches 1,118 moves / 264 pushes. The diagnostic 640-move solution remains
+benchmark evidence, not solver input or proof of optimality.
 
 Roadmap rules
 -------------
@@ -156,7 +156,7 @@ Goal: turn the first structural solution into an incumbent that immediately help
 find better solutions and constrains complete search.
 
 4. Continue structural search after the first solution
-   Status: Complete in build 2026-07-24.40.
+   Status: Complete in build 2026-07-24.41.
 
    Plan:
    - Publish the first replay-valid solution immediately with its moves, pushes,
@@ -178,7 +178,7 @@ find better solutions and constrains complete search.
      incumbent is independently replayed.
 
 5. Rewrite completed solutions with exact local windows
-   Status: Complete in build 2026-07-24.40.
+   Status: Complete in build 2026-07-24.41.
 
    Plan:
    - Partition a solution at stable structural milestones such as completed
@@ -198,7 +198,7 @@ find better solutions and constrains complete search.
      post-processing time and memory budget.
 
 6. Feed every incumbent into exact search
-   Status: Complete in build 2026-07-24.40.
+   Status: Complete in build 2026-07-24.41.
 
    Plan:
    - Use exact push search as an additional discovery method without presenting
@@ -236,10 +236,8 @@ Delivered:
 - Incumbents are saved by puzzle-content hash, replayed before reuse, and paired
   with the existing durable exact checkpoints.
 - Overlapping exact target-state windows rewrite completed paths without
-  weakening validation. The reviewed Huge run improved the planner's own
-  330-push / 1,306-move result to 300 pushes / 1,222 moves in 17.2 seconds and
-  7,683 local states. The same generic pass improved the independent diagnostic
-  incumbent from 250 pushes to 240.
+  weakening validation. The reviewed move-aware Huge run improves the planner's
+  1,216-move / 324-push result to 1,118 moves / 264 pushes in 8,679 local states.
 - Each accepted incumbent retargets newly launched discovery work. Exact push
   contours remain useful discovery evidence, but exhausting one is explicitly
   not treated as proof of minimum moves.

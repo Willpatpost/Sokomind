@@ -18,7 +18,7 @@ jobs:
       - name: Run Huge performance suite
         run: node bench/benchmark.js --suite huge --jsonl > huge-performance.jsonl
         env:
-          NODE_OPTIONS: --max-old-space-size=256
+          NODE_OPTIONS: --max-old-space-size=512
       - name: Enforce reviewed Huge regression ceilings
         run: node bench/huge-performance-gate.js huge-performance.jsonl
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

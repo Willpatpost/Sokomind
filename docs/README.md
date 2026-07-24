@@ -309,7 +309,7 @@ Packing checkpoints retire active bridge work and extreme puzzles run only the t
 best local exact handoffs, allowing the anytime workers to begin earlier. No stored
 solution path or puzzle-specific coordinate is used.
 
-Build `2026-07-24.40` pauses when it finds a replay-valid solution and shows its
+Build `2026-07-24.41` pauses when it finds a replay-valid solution and shows its
 moves, pushes, and combined total before changing the board. **Good enough**
 plays the incumbent; **Keep searching** starts the improvement/proof phase from
 that exact latest incumbent. Solutions are ranked strictly by move count; pushes
@@ -321,13 +321,14 @@ redundant improvement action because their returned move count is already
 optimal. The game header reports live pushes and the known optimal move target:
 Ultra Tiny 1, Tiny 20, Medium 34, and Large 148; Huge is currently unknown.
 
-The released Huge structural plan still produces 330 pushes / 1,306 moves after
-3,752 structural states and 19,689 generated candidates. Its bounded overlapping
-window pass improved that generated route to 300 pushes / 1,222 moves in 17.2
-seconds and 7,683 local states on the development machine. The same generic pass
-improved the independent 250-push diagnostic route to 240 pushes. These are
-regression data, not universal time guarantees or optimality claims; exact search
-remains the completeness fallback.
+The structural planner still compresses walking into push-state transitions
+because that makes the search tractable, but it now carries cumulative move cost,
+uses moves to break structural ties, compares multiple solved successors, and
+chooses the fewest-move solution candidate. On the reviewed Huge configuration,
+the raw structural route drops from 1,306 moves / 330 pushes to 1,216 moves /
+324 pushes. Its bounded overlapping-window pass then reaches 1,118 moves /
+264 pushes in 8,679 local states. The diagnostic 640-move route remains benchmark
+evidence rather than a production input or an optimality claim.
 
 Guided beam and bounded DFS workers publish progress on both state-count and
 elapsed-time intervals, so expensive states cannot make a productive worker appear

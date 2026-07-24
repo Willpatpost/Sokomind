@@ -383,6 +383,7 @@ function selectPlanLayer(candidates, width, board) {
   const ranked = [...candidates].sort((left, right) =>
     left.score - right.score ||
     left.estimate - right.estimate ||
+    left.moves - right.moves ||
     left.cost - right.cost);
   if (ranked.length <= width) return ranked;
   const groups = new Map();
@@ -407,6 +408,7 @@ function selectPlanLayer(candidates, width, board) {
   const heuristicElites = [...ranked]
     .sort((left, right) =>
       left.estimate - right.estimate ||
+      left.moves - right.moves ||
       left.cost - right.cost ||
       left.score - right.score)
     .slice(0, heuristicEliteCount);
@@ -446,12 +448,14 @@ function planMacroBeamSearch(payload) {
       ...position.split(",").map(Number), label,
     ]),
     cost: 0,
+    moves: 0,
     node: null,
   };
   const width = payload.planBeamWidth || payload.beamWidth || 80;
   const maxSegments = payload.maxPlanSegments || 80;
   const maxVisited = payload.maxVisited || 20000;
   const maxPushes = payload.maxDepth || 320;
+  const solutionComparisonBudget = payload.planSolutionComparisonBudget ?? 96;
   const boxBranchLimit = payload.planBoxBranches || 8;
   const macroLimit = payload.sequenceMacroLimit || 24;
   const macroExplored = payload.sequenceMacroExplored || 64;
@@ -494,6 +498,7 @@ function planMacroBeamSearch(payload) {
   const evaluateDoorwaySchedule = boxes =>
     structuralAnalysis(boxes).doorwaySchedule;
   let bestEstimate = structuralAnalysis(initial.boxes).estimate, bestPushes = 0;
+  let bestMoves = 0;
   const planBound = Math.min(
     Number.isFinite(payload.upperBound) ? payload.upperBound : Infinity,
     bestEstimate + (payload.planSlack ?? 192),
@@ -583,7 +588,16 @@ function planMacroBeamSearch(payload) {
     segment < maxSegments && beam.length && visited < maxVisited;
     segment++) {
     const candidates = new Map();
-    for (const current of beam) {
+    let layerSolution = null;
+    let layerSolutionGeneratedAt = null, layerSolutionCandidates = 0;
+    const expansionBeam = bestEstimate <= 20
+      ? [...beam].sort((left, right) =>
+          left.estimate - right.estimate ||
+          left.moves - right.moves ||
+          left.score - right.score)
+      : beam;
+    layerExpansion:
+    for (const current of expansionBeam) {
       if (visited++ >= maxVisited) break;
       const reachable = reachablePaths(current, board);
       if (createsSealedCorralDeadlock(current, board, reachable)) continue;
@@ -738,6 +752,7 @@ function planMacroBeamSearch(payload) {
             robot: next.robot,
             boxes: next.boxes,
             cost,
+            moves: current.moves + next.path.length,
             node: {parent: current.node, segment: next.path},
             pushClass: next.pushClass,
             macroContext: next.macroContext,
@@ -781,18 +796,19 @@ function planMacroBeamSearch(payload) {
           if (!Number.isFinite(child.estimate)) continue;
           if (child.cost + child.estimate > planBound) continue;
           generated++;
-          if (goal(child.boxes, board.goals)) {
-            return {
-              path: reconstructNodePath(child.node),
-              visited,
-              generated,
-              retained: seen.size + seenExact.size,
-              peakFrontier,
-              bestEstimate: 0,
-              bestPushes: cost,
-              strategy: "Plan Macro Beam",
-            };
+          const solvedChild = goal(child.boxes, board.goals);
+          if (solvedChild) {
+            layerSolutionCandidates++;
+            layerSolutionGeneratedAt ??= generated;
+            if (!layerSolution || child.moves < layerSolution.moves) {
+              layerSolution = child;
+            }
           }
+          if (layerSolution &&
+              generated - layerSolutionGeneratedAt >= solutionComparisonBudget) {
+            break layerExpansion;
+          }
+          if (solvedChild) continue;
           child.exactIdentity = exactPushIdentity(child, board);
           if ((seenExact.get(child.exactIdentity) ?? Infinity) <= cost) continue;
           const existing = candidates.get(child.exactIdentity);
@@ -800,9 +816,10 @@ function planMacroBeamSearch(payload) {
             candidates.set(child.exactIdentity, child);
           }
           if (child.estimate < bestEstimate ||
-              (child.estimate === bestEstimate && cost < bestPushes)) {
+              (child.estimate === bestEstimate && child.moves < bestMoves)) {
             bestEstimate = child.estimate;
             bestPushes = cost;
+            bestMoves = child.moves;
             bestHeuristicCheckpoint = child;
           }
           const childCheckpointRank = checkpointRank(child);
@@ -813,6 +830,21 @@ function planMacroBeamSearch(payload) {
           }
         }
       }
+    }
+    if (layerSolution) {
+      return {
+        path: reconstructNodePath(layerSolution.node),
+        visited,
+        generated,
+        retained: seen.size + seenExact.size,
+        peakFrontier,
+        bestEstimate: 0,
+        bestPushes: layerSolution.cost,
+        bestMoves: layerSolution.moves,
+        solutionCandidates: layerSolutionCandidates,
+        solutionComparisonStates: generated - layerSolutionGeneratedAt,
+        strategy: "Plan Macro Beam",
+      };
     }
     peakFrontier = Math.max(peakFrontier, candidates.size);
     const eligible = [];
@@ -838,6 +870,7 @@ function planMacroBeamSearch(payload) {
         visited,
         bestEstimate,
         bestPushes,
+        bestMoves,
         depth: segment + 1,
         frontier: beam.length,
         generated,
@@ -861,6 +894,7 @@ function planMacroBeamSearch(payload) {
     peakFrontier,
     bestEstimate,
     bestPushes,
+    bestMoves,
     trackedThrough,
     checkpoint,
     checkpoints: checkpoints.filter(Boolean),
@@ -2408,9 +2442,7 @@ function solutionWindowRewriteSearch(payload) {
           const candidateDetails = replaySolutionDetails(payload, candidate, board);
           const improves = candidateDetails &&
             goal(candidateDetails.state.boxes, board.goals) &&
-            (candidateDetails.pushes < details.pushes ||
-              (candidateDetails.pushes === details.pushes &&
-                candidateDetails.moves < details.moves));
+            candidateDetails.moves < details.moves;
           if (improves) {
             path = candidate;
             details = candidateDetails;

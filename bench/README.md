@@ -64,14 +64,14 @@ state rather than turning an incomplete search into a rejection.
 `performance-baselines.json` records visited/generated/retained states, frontier
 peaks, transposition evictions, and isolated-process heap peaks. Deterministic
 counters use narrow reviewed tolerances. Heap has a separate wider tolerance,
-and elapsed time is reported but never gated. The Huge suite runs only in the
-scheduled or manually dispatched `Huge Performance` workflow.
+and elapsed time is reported but never gated. The Huge suite runs only when the
+`Huge Performance` workflow is manually dispatched.
 `huge-performance-baselines.json` records reviewed per-orientation ceilings for
-solution pushes and deterministic search counters; `huge-performance-gate.js`
+solution moves and deterministic search counters; `huge-performance-gate.js`
 fails that workflow when an orientation is missing, invalid, unsolved, timed
 out, or exceeds one of those ceilings.
 That suite runs the released structural planner against base, mirrored, and
-rotated Huge under a 256 MB V8 heap ceiling. Every returned solution is replayed
+rotated Huge under a 512 MB V8 heap ceiling. Every returned solution is replayed
 against its own orientation.
 
 The procedural families are separate from the built-in levels. Their private

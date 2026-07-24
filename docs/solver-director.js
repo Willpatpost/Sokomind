@@ -1415,6 +1415,7 @@ function runBidirectionalSolver(purpose, analysis, options = {}) {
           h: Number.isFinite(data.bestEstimate) ? data.bestEstimate : undefined,
           initialH: Number.isFinite(data.initialEstimate) ? data.initialEstimate : undefined,
           pushes: data.bestPushes,
+          moves: data.bestMoves,
           totalPushes: Number.isFinite(data.bestPushes)
             ? (plan.prefixCost || 0) + data.bestPushes : undefined,
           projected: Number.isFinite(data.bestPushes) && Number.isFinite(data.bestEstimate)

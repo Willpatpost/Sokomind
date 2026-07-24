@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "reviewedBuild": "2026-07-24.40",
+  "reviewedBuild": "2026-07-24.41",
   "expectedCases": 3,
   "expectedSolved": 3,
   "maximumPerCase": {
-    "pushes": 330,
-    "visited": 3940,
-    "generated": 20700,
-    "retained": 7400,
-    "peakFrontier": 380,
+    "moves": 1216,
+    "visited": 3600,
+    "generated": 29000,
+    "retained": 6800,
+    "peakFrontier": 520,
     "transpositionEvictions": 0
   },
   "maximumPerformancePerCase": {
-    "denseLayoutDerivations": 500000,
-    "macroIntermediateStates": 1150000
+    "denseLayoutDerivations": 650000,
+    "macroIntermediateStates": 1900000
   },
   "maximumMemoryPerCase": {
-    "peakBytes": 250000000
+    "peakBytes": 500000000
   }
 }

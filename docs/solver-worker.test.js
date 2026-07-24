@@ -1637,6 +1637,32 @@ test("plan macro beam solves by chaining bounded single-box objectives", () => {
   assert.ok(result.performance.macroEndpointsRetained > 0);
 });
 
+test("plan macro beam compares solved candidates by total moves", () => {
+  const worker = loadWorker();
+  const state = stateFromRows([
+    "OOOOOO",
+    "OR a O",
+    "O A  O",
+    "O    O",
+    "O    O",
+    "OOOOOO",
+  ]);
+  const result = worker.search({
+    algorithm: "plan-macro-beam",
+    state,
+    maxVisited: 200,
+    planBeamWidth: 20,
+    maxPlanSegments: 20,
+  });
+  const exact = worker.search({algorithm: "astar", state});
+
+  assert.equal(result.status, "solved");
+  assert.equal(result.path.length, 5);
+  assert.equal(result.path.length, exact.path.length);
+  assert.ok(result.solutionCandidates > 1);
+  assert.equal(result.bestMoves, result.path.length);
+});
+
 test("adaptive macro effort avoids full expansion for a forced corridor", () => {
   const worker = loadWorker();
   const request = {
@@ -2474,7 +2500,7 @@ test("the improved Huge replay establishes a 250-push incumbent", () => {
   assert.equal(worker.goal(state.boxes, board.goals), true);
 });
 
-test("exact solution windows improve the diagnostic Huge incumbent below 250 pushes", () => {
+test("exact solution windows improve diagnostic Huge moves", () => {
   const worker = loadWorker();
   const solution = fs.readFileSync(
     path.join(__dirname, "optimalForHuge.txt"),
@@ -2493,7 +2519,7 @@ test("exact solution windows improve the diagnostic Huge incumbent below 250 pus
   });
 
   assert.equal(result.status, "solved");
-  assert.ok(result.bestPushes <= 240);
-  assert.ok(result.bestPushes < result.initialPushes);
+  assert.ok(result.bestMoves < result.initialMoves);
+  assert.ok(result.bestPushes <= result.initialPushes);
   assert.ok(result.visited <= 5000);
 });

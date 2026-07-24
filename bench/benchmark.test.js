@@ -31,6 +31,23 @@ test("unsolved searches receive no partial credit without a validated checkpoint
   assert.equal(score, -22);
 });
 
+test("solved benchmark scoring treats moves as the path objective", () => {
+  const base = {
+    valid: true,
+    solved: true,
+    visited: 100,
+    elapsedMs: 10,
+  };
+  assert.equal(
+    caseScore({...base, moves: 50, pushes: 5}, 1),
+    caseScore({...base, moves: 50, pushes: 500}, 1),
+  );
+  assert.ok(
+    caseScore({...base, moves: 49, pushes: 500}, 1) >
+    caseScore({...base, moves: 50, pushes: 5}, 1),
+  );
+});
+
 test("isolated benchmark cases report heap and process lifecycle telemetry", async () => {
   const result = await runChild({
     name: "telemetry fixture",

@@ -172,7 +172,7 @@ function caseScore(result, weight) {
   if (result.timeout || result.error || !result.valid) return -1000000 * weight;
   const visitedCost = (result.visited || 0) * 0.02;
   const timeCost = (result.elapsedMs || 0) * 2;
-  const pathCost = (result.moves || 0) + 5 * (result.pushes || 0);
+  const pathCost = result.moves || 0;
   const checkpoint = result.checkpointEvaluation?.best;
   const partialCredit = checkpoint
     ? Math.max(0, 100000 - 600 * checkpoint.remainingPushes - 4 * checkpoint.pushes)
