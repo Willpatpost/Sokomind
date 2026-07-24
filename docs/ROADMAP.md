@@ -156,7 +156,7 @@ Goal: turn the first structural solution into an incumbent that immediately help
 find better solutions and constrains complete search.
 
 4. Continue structural search after the first solution
-   Status: Complete in build 2026-07-24.38.
+   Status: Complete in build 2026-07-24.39.
 
    Plan:
    - Publish the first replay-valid solution immediately with its moves, pushes,
@@ -178,7 +178,7 @@ find better solutions and constrains complete search.
      budget, with every incumbent independently replayed.
 
 5. Rewrite completed solutions with exact local windows
-   Status: Complete in build 2026-07-24.38.
+   Status: Complete in build 2026-07-24.39.
 
    Plan:
    - Partition a solution at stable structural milestones such as completed
@@ -199,7 +199,7 @@ find better solutions and constrains complete search.
      post-processing time and memory budget.
 
 6. Feed every incumbent into exact search
-   Status: Complete in build 2026-07-24.38.
+   Status: Complete in build 2026-07-24.39.
 
    Plan:
    - Start or tighten exact IDA*/A* with the best replay-valid push bound as soon
@@ -230,6 +230,10 @@ Delivered:
   Accepting it starts playback; continuing starts a new improvement phase from
   the persisted incumbent and tighter bound. Later improvements use the same
   decision boundary.
+- Every improvement phase replays the full incumbent through overlapping exact
+  windows before accepting a replacement. Exact BFS and A* results skip the
+  redundant continuation choice, and the live game summary tracks pushes as
+  well as moves and time.
 - Incumbents are saved by puzzle-content hash, replayed before reuse, and paired
   with the existing durable exact checkpoints.
 - Overlapping exact target-state windows rewrite completed paths without

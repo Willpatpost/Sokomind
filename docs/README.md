@@ -308,13 +308,15 @@ Packing checkpoints retire active bridge work and extreme puzzles run only the t
 best local exact handoffs, allowing the anytime workers to begin earlier. No stored
 solution path or puzzle-specific coordinate is used.
 
-Build `2026-07-24.38` pauses when it finds a replay-valid solution and shows its
+Build `2026-07-24.39` pauses when it finds a replay-valid solution and shows its
 moves, pushes, and combined total before changing the board. **Good enough**
 plays the incumbent; **Keep searching** starts the improvement/proof phase from
-that persisted incumbent and its tighter bound. A later improvement pauses at
-the same decision boundary. Candidates are ordered by pushes first and moves
-second, and exact progress reports the best-known result, admissible lower bound,
-and remaining push gap separately.
+that persisted incumbent and its tighter bound. The improvement worker receives
+the complete incumbent path and re-solves overlapping sections to remove
+unnecessary pushes or walking. A later improvement pauses at the same decision
+boundary, so this loop continues until the user accepts. Exact BFS and A* modes
+hide the redundant improvement action because their returned objective is already
+optimal. The game header reports live pushes alongside time and moves.
 
 The released Huge structural plan still produces 330 pushes / 1,306 moves after
 3,752 structural states and 19,689 generated candidates. Its bounded overlapping

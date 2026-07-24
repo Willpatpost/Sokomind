@@ -69,6 +69,7 @@ test("solver solutions require an explicit play-or-continue decision", () => {
     "solution-total",
     "solution-continue",
     "solution-good-enough",
+    "push-count",
   ]) {
     assert.match(html, new RegExp(`id="${id}"`));
   }
@@ -76,6 +77,8 @@ test("solver solutions require an explicit play-or-continue decision", () => {
   assert.match(app, /quality\.moves \+ quality\.pushes/);
   assert.match(director, /Paused search for solution decision/);
   assert.match(director, /runBidirectionalSolver\(purpose, analysis, \{resumeImprovement: true\}\)/);
+  assert.match(director, /EXACT_PUBLIC_SOLUTION_LABELS/);
+  assert.match(director, /Replaying the incumbent through improvement windows/);
 });
 
 test("Ultimate scheduling retires stale phases and reclaims silent workers", () => {

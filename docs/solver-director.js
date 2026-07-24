@@ -2,6 +2,14 @@ const EXACT_CHECKPOINT_STORAGE_KEY = "sokomind-exact-checkpoints-v1";
 const EXACT_CHECKPOINT_MAX_ENTRIES = 8;
 const ANYTIME_INCUMBENT_STORAGE_KEY = "sokomind-anytime-incumbents-v1";
 const ANYTIME_INCUMBENT_MAX_ENTRIES = 4;
+const EXACT_PUBLIC_SOLUTION_LABELS = Object.freeze({
+  bfs: {provenLabel: "Optimal BFS solution found", title: "Best solution found"},
+  astar: {provenLabel: "Optimal A* solution found", title: "Best solution found"},
+  "push-astar": {
+    provenLabel: "Push-optimal A* solution found",
+    title: "Best push solution found",
+  },
+});
 const SOLVER_WORKER_WATCHDOG_MS = globalThis.SOKOMIND_WORKER_WATCHDOG_MS || 120000;
 let exactCheckpointSaveWarningShown = false;
 
@@ -775,9 +783,15 @@ function runBidirectionalSolver(purpose, analysis, options = {}) {
         : "This puzzle is already solved.");
     } else if (restoringIncumbent && options.resumeImprovement) {
       solverAnytimeActive = true;
+      appendSearchLog("baseline", "Replaying the incumbent through improvement windows", {
+        pushes: candidate.pushes,
+        moves: candidate.moves,
+        combined: candidate.pushes + candidate.moves,
+        strategy,
+      });
       setStatus(
-        `Best known: ${candidate.pushes} pushes / ${candidate.moves} moves; ` +
-        `searching for a better solution.`,
+        `Rechecking ${candidate.pushes} pushes / ${candidate.moves} moves for ` +
+        `unnecessary sections.`,
       );
     } else {
       settled = true;
@@ -1449,6 +1463,11 @@ function runBidirectionalSolver(purpose, analysis, options = {}) {
           goalAccessCacheHits: data.performance?.goalAccessCacheHits,
           goalAccessBlockedGoals: data.performance?.goalAccessBlockedGoals,
           goalAccessMs: data.performance?.goalAccessMs,
+          baselinePushes: data.initialPushes,
+          baselineMoves: data.initialMoves,
+          rewrittenPushes: data.bestPushes,
+          rewrittenMoves: data.bestMoves,
+          rewriteImprovements: data.improvements,
           supportDependencyCacheHits: data.performance?.supportDependencyCacheHits,
           localRoomCacheHits: data.performance?.localRoomCacheHits,
           localCorralCacheHits: data.performance?.localCorralCacheHits,
@@ -1990,6 +2009,11 @@ function startSolver(purpose) {
         goalAccessCacheHits: data.performance?.goalAccessCacheHits,
         goalAccessBlockedGoals: data.performance?.goalAccessBlockedGoals,
         goalAccessMs: data.performance?.goalAccessMs,
+        baselinePushes: data.initialPushes,
+        baselineMoves: data.initialMoves,
+        rewrittenPushes: data.bestPushes,
+        rewrittenMoves: data.bestMoves,
+        rewriteImprovements: data.improvements,
       });
       if (data.path) {
         const candidate = evaluateSolutionPath(data.path);
@@ -2018,11 +2042,16 @@ function startSolver(purpose) {
             const serialized = serializeState(state);
             saveAnytimeIncumbent(serialized, {...candidate, strategy: plan.label});
             rememberSolverPushBound(candidate.pushes);
+            const exactGuarantee = EXACT_PUBLIC_SOLUTION_LABELS[plan.algorithm] || null;
             showSolutionDecision({
               pushes: candidate.pushes,
               moves: candidate.moves,
               strategy: plan.label,
               improved: false,
+              proven: Boolean(exactGuarantee),
+              provenLabel: exactGuarantee?.provenLabel,
+              title: exactGuarantee?.title,
+              canContinue: !exactGuarantee,
             }, {
               accept: () => {
                 appendSearchLog("control", "User accepted the current solution", {
@@ -2037,6 +2066,7 @@ function startSolver(purpose) {
                 animate();
               },
               continueSearch: () => {
+                if (exactGuarantee) return;
                 appendSearchLog("control", "User requested Ultimate improvement search", {
                   incumbentPushes: candidate.pushes,
                   incumbentMoves: candidate.moves,

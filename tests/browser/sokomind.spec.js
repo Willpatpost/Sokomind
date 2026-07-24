@@ -182,6 +182,7 @@ test("page load, selection, keyboard completion, stored bounds, and build displa
   await page.locator("#board").press("ArrowDown");
   await expect(page.locator("#complete-dialog")).toBeVisible();
   await expect(page.locator("#status")).toHaveText("Solved in 1 moves!");
+  await expect(page.locator("#push-count")).toHaveText("1");
   await expect.poll(() => page.evaluate(() =>
     JSON.parse(localStorage.getItem("sokomind-push-bounds-v1"))["ultra-tiny"])).toBe(1);
 });
@@ -198,7 +199,12 @@ test("actual worker supports hint, solve, stop, undo, and reset during animation
   await expect(page.locator("#solution-moves")).toHaveText("22");
   await expect(page.locator("#solution-pushes")).toHaveText("5");
   await expect(page.locator("#solution-total")).toHaveText("27");
+  await expect(page.locator("#solution-dialog-kind")).toHaveText(
+    "Push-optimal A* solution found",
+  );
+  await expect(page.getByRole("button", {name: "Keep searching"})).toBeHidden();
   await expect(page.locator("#move-count")).toHaveText("0");
+  await expect(page.locator("#push-count")).toHaveText("0");
   await page.getByRole("button", {name: /Good enough/}).click();
   await expect(page.locator("#status")).toContainText("Playing");
   await page.getByRole("button", {name: "Undo"}).click();
@@ -211,6 +217,7 @@ test("actual worker supports hint, solve, stop, undo, and reset during animation
   await page.getByRole("button", {name: "Reset"}).click();
   await expect(page.locator("#status")).toHaveText("Level reset.");
   await expect(page.locator("#move-count")).toHaveText("0");
+  await expect(page.locator("#push-count")).toHaveText("0");
 
   await page.getByRole("button", {name: /Huge/}).click();
   await page.getByRole("button", {name: "Solve"}).click();
@@ -224,6 +231,7 @@ test("touch controls and responsive board sizing work at the mobile breakpoint",
   await expect(page.locator(".touch-controls")).toHaveCSS("display", "grid");
   await page.getByRole("button", {name: "Move down"}).dispatchEvent("pointerdown");
   await expect(page.locator("#complete-dialog")).toBeVisible();
+  await expect(page.locator("#push-count")).toHaveText("1");
   await expect(page.locator("#board")).toHaveCSS("--tile-size", /px/);
 });
 
@@ -236,6 +244,7 @@ test("stale worker messages cannot mutate a stopped search", async ({page}) => {
   await page.waitForTimeout(650);
   await expect(page.locator("#status")).toHaveText("Stopped.");
   await expect(page.locator("#move-count")).toHaveText("0");
+  await expect(page.locator("#push-count")).toHaveText("0");
 });
 
 test("worker errors surface as an explicit failed search", async ({page}) => {
@@ -311,6 +320,10 @@ test("Ultimate waits for a decision, then searches again and offers the improvem
   ));
   expect(rewrite.state.robot).toEqual([1, 2]);
   expect(rewrite.upperBound).toBe(0);
+  expect(rewrite.solutionPath).toEqual(["Left", "Down", "Up", "Right", "Down"]);
+  await expect(page.locator("#search-log-text")).toHaveValue(
+    /Replaying the incumbent through improvement windows/,
+  );
   await expect(page.locator("#search-log-text")).toHaveValue(/replay-validated solution/);
   await expect(page.locator("#search-log-text")).toHaveValue(/replay-validated improvement/);
   await expect(page.locator("#search-log-text")).toHaveValue(/pushes=1 moves=1/);
@@ -323,4 +336,5 @@ test("Ultimate waits for a decision, then searches again and offers the improvem
   await page.getByRole("button", {name: /Good enough/}).click();
   await expect(page.locator("#complete-dialog")).toBeVisible();
   await expect(page.locator("#move-count")).toHaveText("1");
+  await expect(page.locator("#push-count")).toHaveText("1");
 });

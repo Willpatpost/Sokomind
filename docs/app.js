@@ -77,8 +77,12 @@ function moveHistoryText() {
     `${index + 1}. ${direction}${pushed ? " (push)" : ""}`
   )).join("\n");
 }
+function currentPushes() {
+  return moveHistory.reduce((total, entry) => total + Number(entry.pushed), 0);
+}
 function renderMoveHistory() {
   $("move-history-count").textContent = moves.toLocaleString();
+  $("push-count").textContent = currentPushes().toLocaleString();
   $("move-history-text").value = moveHistoryText();
 }
 function renderSearchLog() {
@@ -148,6 +152,7 @@ function renderLevels() {
 function render() {
   $("level-title").textContent = title(levelKey);
   $("move-count").textContent = moves;
+  $("push-count").textContent = currentPushes();
   const board = $("board"), rows = state.board.rows;
   board.style.gridTemplateColumns = `repeat(${rows[0].length}, 1fr)`;
   board.style.setProperty("--cols", rows[0].length);
@@ -237,8 +242,11 @@ function dismissSolutionDecision() {
 function showSolutionDecision(quality, handlers) {
   solutionDecision = handlers;
   $("solution-dialog-kind").textContent = quality.proven
-    ? "Push-optimal solution proven"
+    ? quality.provenLabel || "Optimal solution found"
     : quality.improved ? "Better solution found" : "First solution found";
+  $("solution-dialog-title").textContent = quality.title ||
+    (quality.canContinue === false ? "Best solution found" :
+      "Is this solution good enough?");
   $("solution-moves").textContent = quality.moves.toLocaleString();
   $("solution-pushes").textContent = quality.pushes.toLocaleString();
   $("solution-total").textContent = (quality.moves + quality.pushes).toLocaleString();
