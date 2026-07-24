@@ -560,7 +560,8 @@ function planMacroBeamSearch(payload) {
       child.doorwaySchedule.blockedImportAccess > 0;
     const evacuationComplete = hasEvacuationPlan &&
       child.doorwaySchedule.pendingExports === 0;
-    child.score = child.cost + (evacuationActive ? 0.25 : 1.15) * child.estimate +
+    child.score = child.cost + (payload.planMoveWeight ?? 0.005) * child.moves +
+      (evacuationActive ? 0.25 : 1.15) * child.estimate +
       4 * child.goalAccess.penalty + 0.08 * child.evacuation +
       (evacuationActive ? 4 : 3) * child.doorwaySchedule.penalty -
       (evacuationComplete ? 250 : 0);
@@ -748,7 +749,7 @@ function planMacroBeamSearch(payload) {
           if (next.macroRejectedReason) continue;
           const cost = current.cost + next.pushes;
           if (cost > maxPushes) continue;
-          const child = scoreCandidate({
+          const child = {
             robot: next.robot,
             boxes: next.boxes,
             cost,
@@ -756,7 +757,10 @@ function planMacroBeamSearch(payload) {
             node: {parent: current.node, segment: next.path},
             pushClass: next.pushClass,
             macroContext: next.macroContext,
-          });
+          };
+          child.exactIdentity = exactPushIdentity(child, board);
+          if ((seenExact.get(child.exactIdentity) ?? Infinity) <= cost) continue;
+          scoreCandidate(child);
           if (payload.planEgressGuard !== false &&
               doorwayTask?.direction === "import" &&
               child.doorwaySchedule.strandedExports >
@@ -809,8 +813,6 @@ function planMacroBeamSearch(payload) {
             break layerExpansion;
           }
           if (solvedChild) continue;
-          child.exactIdentity = exactPushIdentity(child, board);
-          if ((seenExact.get(child.exactIdentity) ?? Infinity) <= cost) continue;
           const existing = candidates.get(child.exactIdentity);
           if (!existing || child.score < existing.score) {
             candidates.set(child.exactIdentity, child);

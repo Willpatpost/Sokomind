@@ -47,7 +47,16 @@ function denseBoxLayout(boxes, board) {
   const packed = valid
     ? packedIdentityFromTokens(tokens, board)
     : {identity: null, signature: boxSignatureReference(boxes)};
-  const layout = {cells, labels, tokens, indexByCell, occupancyBits, valid, ...packed};
+  const layout = {
+    cells,
+    labels,
+    tokens,
+    orderedSignature: tokens.join("."),
+    indexByCell,
+    occupancyBits,
+    valid,
+    ...packed,
+  };
   board.denseBoxMemo.set(boxes, layout);
   board.metrics.denseLayoutBuilds++;
   board.metrics.occupancyWordsBuilt += occupancyBits.length;
@@ -77,6 +86,7 @@ function deriveDenseBoxLayout(parentBoxes, boxes, changedIndex, destinationId, b
     cells,
     labels,
     tokens,
+    orderedSignature: tokens.join("."),
     indexByCell,
     occupancyBits,
     valid: true,
@@ -89,7 +99,7 @@ function deriveDenseBoxLayout(parentBoxes, boxes, changedIndex, destinationId, b
 
 function cachedPushedBoxes(parentBoxes, changedIndex, destinationId, label, board) {
   const parentLayout = denseBoxLayout(parentBoxes, board);
-  const key = `${parentLayout.tokens.join(".")}|${changedIndex}|${destinationId}`;
+  const key = `${parentLayout.orderedSignature}|${changedIndex}|${destinationId}`;
   const cached = board.pushTransitionMemo.get(key);
   if (cached) {
     board.metrics.denseTransitionCacheHits++;
@@ -2812,27 +2822,30 @@ function reachablePaths(state, board) {
 function minimumBlockerRoutes(reachable, board) {
   const {dense} = board, size = dense.keys.length;
   const distances = new Int16Array(size), parents = new Int32Array(size);
-  const settled = new Uint8Array(size);
   distances.fill(32767);
   parents.fill(-1);
-  for (const position of reachable.keys()) distances[dense.idByKey.get(position)] = 0;
-  for (let count = 0; count < size; count++) {
-    let current = -1, best = 32767;
-    for (let id = 0; id < size; id++) {
-      if (!settled[id] && distances[id] < best) {
-        current = id;
-        best = distances[id];
-      }
+  const front = [], back = [];
+  for (const position of reachable.keys()) {
+    const id = dense.idByKey.get(position);
+    distances[id] = 0;
+    back.push(id);
+  }
+  while (front.length || back.length) {
+    if (!front.length) {
+      while (back.length) front.push(back.pop());
     }
-    if (current < 0) break;
-    settled[current] = 1;
+    const current = front.pop();
+    const best = distances[current];
     for (let direction = 0; direction < DIRECTION_ENTRIES.length; direction++) {
       const next = dense.neighbors[current * DIRECTION_ENTRIES.length + direction];
-      if (next < 0 || settled[next]) continue;
-      const distance = best + (reachable.occupied[next] >= 0 ? 1 : 0);
+      if (next < 0) continue;
+      const blocked = reachable.occupied[next] >= 0;
+      const distance = best + Number(blocked);
       if (distance >= distances[next]) continue;
       distances[next] = distance;
       parents[next] = current;
+      if (blocked) back.push(next);
+      else front.push(next);
     }
   }
   const routeTo = destination => {
@@ -4352,22 +4365,33 @@ function expandPushSequences(
     right.pushes - left.pushes ||
     left.path.length - right.path.length);
   const selected = [], destinations = new Set();
+  const viableEndpoint = endpoint => {
+    if (!(endpoint.targetDistance > 0)) return true;
+    const state = {robot: endpoint.robot, boxes: endpoint.boxes};
+    const reachable = reachablePaths(state, board);
+    return pushBoxNeighbors(
+      state,
+      board,
+      endpoint.pushedTo,
+      reachable,
+      {lockProven: options.lockProven},
+    ).length > 0;
+  };
   for (const endpoint of endpoints) {
     if (destinations.has(endpoint.pushedTo)) continue;
-    if (endpoint.targetDistance > 0) {
-      const state = {robot: endpoint.robot, boxes: endpoint.boxes};
-      const reachable = reachablePaths(state, board);
-      if (!pushBoxNeighbors(
-        state,
-        board,
-        endpoint.pushedTo,
-        reachable,
-        {lockProven: options.lockProven},
-      ).length) continue;
-    }
+    if (!viableEndpoint(endpoint)) continue;
     destinations.add(endpoint.pushedTo);
     selected.push(endpoint);
     if (selected.length >= maxReturned) break;
+  }
+  const approaches = new Set(selected.map(endpoint =>
+    `${endpoint.pushedTo}|${endpoint.robot.join(",")}`));
+  for (const endpoint of endpoints) {
+    if (selected.length >= maxReturned) break;
+    const approach = `${endpoint.pushedTo}|${endpoint.robot.join(",")}`;
+    if (approaches.has(approach) || !viableEndpoint(endpoint)) continue;
+    approaches.add(approach);
+    selected.push(endpoint);
   }
   if (metrics) metrics.macroEndpointsRetained += selected.length;
   return [initial, ...selected.filter(endpoint =>
@@ -4502,6 +4526,15 @@ function expandTargetedPushSequence(
     destinations.add(endpoint.pushedTo);
     selected.push(endpoint);
     if (selected.length >= maxReturned) break;
+  }
+  const approaches = new Set(selected.map(endpoint =>
+    `${endpoint.pushedTo}|${endpoint.robot.join(",")}`));
+  for (const endpoint of endpoints) {
+    if (selected.length >= maxReturned) break;
+    const approach = `${endpoint.pushedTo}|${endpoint.robot.join(",")}`;
+    if (approaches.has(approach)) continue;
+    approaches.add(approach);
+    selected.push(endpoint);
   }
   if (metrics) metrics.macroEndpointsRetained += selected.length;
   return [initial, ...selected.filter(endpoint =>

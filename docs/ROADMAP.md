@@ -13,12 +13,15 @@ to production search.
 Current reference point
 -----------------------
 
-Build 2026-07-24.41 compares competing structural routes and solved successors
-by total player moves while retaining push-state compression. In the reviewed
-Huge configuration it improves the raw structural result from 1,306 moves /
-330 pushes to 1,216 moves / 324 pushes. A bounded rewrite of that new incumbent
-reaches 1,118 moves / 264 pushes. The diagnostic 640-move solution remains
-benchmark evidence, not solver input or proof of optimality.
+Build 2026-07-24.42 retains push-state compression while adding a small move-cost
+signal to structural ranking and reducing wasted macro work. Base, mirrored, and
+rotated Huge each produce the same replay-valid 1,047-move / 310-push first
+solution in 31-33 seconds on the reviewed machine, compared with 1,216 moves /
+324 pushes in 80-83 seconds for build `.41`. A bounded rewrite reaches 955 moves /
+294 pushes in about nine isolated-kernel seconds. An end-to-end production
+Chromium run showed the first decision at 24 seconds and that improvement at 30
+seconds total. The diagnostic 640-move solution remains benchmark evidence, not
+solver input or proof of optimality.
 
 Roadmap rules
 -------------
@@ -99,7 +102,7 @@ worker.
      without increasing retained structural states or peak memory.
 
 2. Make macro effort adaptive
-   Status: Complete in build 2026-07-23.36.
+   Status: Complete; retuned in build 2026-07-24.42.
 
    Plan:
    - Estimate local ambiguity from legal push directions, competing targets,
@@ -122,7 +125,7 @@ worker.
      its deterministic top-level search counters.
 
 3. Give the structural worker resource priority
-   Status: Complete in build 2026-07-23.36.
+   Status: Complete; resource reservation corrected in build 2026-07-24.42.
 
    Plan:
    - Give structural discovery a short head start or exclusive high-priority slot
@@ -237,7 +240,7 @@ Delivered:
   with the existing durable exact checkpoints.
 - Overlapping exact target-state windows rewrite completed paths without
   weakening validation. The reviewed move-aware Huge run improves the planner's
-  1,216-move / 324-push result to 1,118 moves / 264 pushes in 8,679 local states.
+  1,047-move / 310-push result to 955 moves / 294 pushes in 4,821 local states.
 - Each accepted incumbent retargets newly launched discovery work. Exact push
   contours remain useful discovery evidence, but exhausting one is explicitly
   not treated as proof of minimum moves.

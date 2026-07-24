@@ -228,11 +228,17 @@ function runBidirectionalSolver(purpose, analysis, options = {}) {
   const recommendations = analysis.recommendations;
   const searchScale = analysis.searchScale;
   const advancedPortfolio = ["complex", "extreme"].includes(analysis.difficulty);
+  const maxWorkerConcurrency = SokomindDirectorPolicy.portfolioWorkerCapacity(
+    hardware, navigator.deviceMemory,
+  );
+  const reservesStructuralWorker = advancedPortfolio &&
+    recommendations.useSequenceMacros;
   const reverseLimit = recommendations.reverseWorkerLimit;
   const sideVisitedLimit = recommendations.sideVisitedLimit;
-  const reverseWorkers = Math.max(1, Math.min(
+  const reverseWorkers = Math.max(0, Math.min(
     hardware - 1,
     reverseLimit,
+    maxWorkerConcurrency - 1 - Number(reservesStructuralWorker),
     Math.max(1, analysis.reverseStartPulls || analysis.reverseStartRegions || 1),
   ));
   appendSearchLog("analysis", `${analysis.difficulty} puzzle analyzed`, {
@@ -357,12 +363,13 @@ function runBidirectionalSolver(purpose, analysis, options = {}) {
     maxDepth: 460,
     maxVisited: 6000,
     transpositionLimit: 60000,
-    planBeamWidth: 40,
+    planBeamWidth: 32,
     planBoxBranches: 6,
     maxPlanSegments: 160,
     planSlack: 240,
     sequenceMacroLimit: 24,
     sequenceMacroExplored: 48,
+    targetedMacroExplored: 64,
     sequenceMacroResults: 4,
     progressIntervalMs: 5000,
     phaseScope: recommendations.useEvacuation ? "evacuation" : "opening",
@@ -380,9 +387,6 @@ function runBidirectionalSolver(purpose, analysis, options = {}) {
   ]
     .map(plan => ({...plan, queuePriority: plan.phaseScope === "evacuation" ? 0 : 50,
       queueOrder: directOrder++}));
-  const maxWorkerConcurrency = SokomindDirectorPolicy.portfolioWorkerCapacity(
-    hardware, navigator.deviceMemory,
-  );
   const bridgeMaxOutstanding = Math.min(4, Math.max(1, maxWorkerConcurrency - 1));
   let activeDirectWorkers = 0, activeEvacuationWorkers = 0, activeBridgeWorkers = 0;
   let activeSideWorkers = 0;
@@ -770,8 +774,8 @@ function runBidirectionalSolver(purpose, analysis, options = {}) {
         maxVisited: Math.min(600000, 120000 * refinementRound),
         windowVisited: Math.min(40000, 8000 * refinementRound),
         windowPushes: rewriteWindowPushes,
-        queuePriority: 2,
-      }], {priority: 2});
+        queuePriority: -10,
+      }], {priority: -10});
     }
     if (purpose === "hint") {
       settled = true;
@@ -1747,6 +1751,7 @@ function runBidirectionalSolver(purpose, analysis, options = {}) {
         doneWorkers++;
         finishRequiredPlan(plan);
         releaseWorker({reason: data.terminationReason || "completed"});
+        if (plan.handoffStage === "rewrite") launchSideWorkers();
         if (provedPushOptimal) {
           settled = true;
           solverAnytimeActive = false;
@@ -1820,6 +1825,7 @@ function runBidirectionalSolver(purpose, analysis, options = {}) {
     };
     worker.onerror = error => {
       if (!workers.includes(worker)) return;
+      if (plan.handoffStage === "rewrite") launchSideWorkers();
       abandonWorker("worker-error", error);
     };
     const planState = plan.state || campaignSerializedState;
@@ -1829,6 +1835,30 @@ function runBidirectionalSolver(purpose, analysis, options = {}) {
       upperBound: effectiveUpperBound,
       solverBuild: SOLVER_BUILD,
     });
+  };
+
+  let sideWorkersLaunched = false;
+  const launchSideWorkers = () => {
+    if (sideWorkersLaunched || settled) return;
+    sideWorkersLaunched = true;
+    launch({
+      mode: "bidir-forward",
+      side: "forward",
+      label: "Forward Push Search",
+      maxVisited: sideVisitedLimit,
+      frontierLimit: 40000,
+    });
+    for (let index = 0; index < reverseWorkers; index++) {
+      launch({
+        mode: "bidir-reverse",
+        side: "reverse",
+        label: `Reverse Branch Shard ${index + 1}/${reverseWorkers}`,
+        landmarkGeneration: `initial-${index + 1}`,
+        maxVisited: sideVisitedLimit,
+        frontierLimit: 40000,
+        reverseShard: {index, count: reverseWorkers},
+      });
+    }
   };
 
   const savedIncumbent = options.incumbent ||
@@ -1846,25 +1876,8 @@ function runBidirectionalSolver(purpose, analysis, options = {}) {
 
   if (settled) return;
 
-  launch({
-    mode: "bidir-forward",
-    side: "forward",
-    label: "Forward Push Search",
-    maxVisited: sideVisitedLimit,
-    frontierLimit: 40000,
-  });
-  for (let index = 0; index < reverseWorkers; index++) {
-    launch({
-      mode: "bidir-reverse",
-      side: "reverse",
-      label: `Reverse Branch Shard ${index + 1}/${reverseWorkers}`,
-      landmarkGeneration: `initial-${index + 1}`,
-      maxVisited: sideVisitedLimit,
-      frontierLimit: 40000,
-      reverseShard: {index, count: reverseWorkers},
-    });
-  }
   pumpDirectPlans();
+  if (!options.resumeImprovement) launchSideWorkers();
   const structuralDelay = SokomindDirectorPolicy.structuralHeadStartMs(
     structuralPriorityActive, navigator.deviceMemory,
   );

@@ -312,6 +312,12 @@ test("Ultimate waits for a decision, then searches again and offers the improvem
   expect(await page.evaluate(() => window.__workerMessages.some(
     message => message.algorithm === "solution-window-rewrite",
   ))).toBe(false);
+  const initialSideWorkers = await page.evaluate(() => window.__workerMessages.filter(
+    message => ["forward", "reverse"].includes(message.side),
+  ).length);
+  const messagesBeforeRefinement = await page.evaluate(
+    () => window.__workerMessages.length,
+  );
   await page.getByRole("button", {name: "Keep searching"}).click();
   await expect.poll(() => page.evaluate(() => window.__workerMessages.some(
     message => message.algorithm === "solution-window-rewrite",
@@ -334,6 +340,13 @@ test("Ultimate waits for a decision, then searches again and offers the improvem
   await expect(page.locator("#solution-pushes")).toHaveText("1");
   await expect(page.locator("#solution-total")).toHaveText("2");
   await expect(page.locator("#move-count")).toHaveText("0");
+  const refinementSideWorkers = await page.evaluate(startIndex =>
+    window.__workerMessages.slice(startIndex)
+      .filter(message => ["forward", "reverse"].includes(message.side))
+      .map(message => ({label: message.label, side: message.side})),
+  messagesBeforeRefinement);
+  expect(refinementSideWorkers).toEqual([]);
+  expect(initialSideWorkers).toBeGreaterThan(0);
   await page.getByRole("button", {name: /Good enough/}).click();
   await expect(page.locator("#complete-dialog")).toBeVisible();
   await expect(page.locator("#move-count")).toHaveText("1");

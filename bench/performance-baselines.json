@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "reviewedBuild": "2026-07-24.41",
+  "reviewedBuild": "2026-07-24.42",
   "suites": {
     "smoke": {
       "expected": {
@@ -20,7 +20,7 @@
         "transpositionEvictions": 0
       },
       "memory": {
-        "reviewedPeakBytes": 60000000,
+        "reviewedPeakBytes": 70000000,
         "maximumFactor": 2.5
       }
     },

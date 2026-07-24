@@ -9,14 +9,14 @@ const HUGE_STRUCTURAL_PAYLOAD = {
   maxDepth: 460,
   maxVisited: 6000,
   transpositionLimit: 60000,
-  planBeamWidth: 40,
+  planBeamWidth: 32,
   planBoxBranches: 6,
   maxPlanSegments: 160,
   planSlack: 240,
   sequenceMacroLimit: 24,
   sequenceMacroExplored: 48,
   sequenceMacroResults: 4,
-  targetedMacroExplored: 96,
+  targetedMacroExplored: 64,
   progressIntervalMs: 5000,
 };
 
