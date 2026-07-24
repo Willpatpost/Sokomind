@@ -2124,6 +2124,9 @@ function analyzePuzzleForSearch(data) {
   if (surplusBoxes) phases.push({id: "evacuation", reason: `${surplusBoxes} surplus room box${surplusBoxes === 1 ? "" : "es"}`});
   if (board.topology.rooms.length) phases.push({id: "room-packing", reason: `${board.topology.rooms.length} gated goal room${board.topology.rooms.length === 1 ? "" : "s"}`});
   if (board.topology.tunnels.size) phases.push({id: "tunnel-macros", reason: `${board.topology.tunnels.size} tunnel cells`});
+  if (boxes.length >= 4 && difficulty !== "extreme") {
+    phases.push({id: "feature-space", reason: "label-aware packing and connectivity axes"});
+  }
   if (difficulty === "complex" || difficulty === "extreme") {
     phases.push({id: "milestone-reverse", reason: "large canonical push space"});
     phases.push({id: "landmark-bridges", reason: "connect forward phases to reverse layouts"});
@@ -2137,6 +2140,7 @@ function analyzePuzzleForSearch(data) {
     beamVisited: difficulty === "extreme" ? 110000 : difficulty === "complex" ? 180000 : 250000,
     useEvacuation: surplusBoxes > 0,
     useSequenceMacros: board.topology.tunnels.size > 0 || board.topology.rooms.length > 0,
+    useFess: boxes.length >= 4 && difficulty !== "extreme",
     useMilestoneReverse: difficulty === "complex" || difficulty === "extreme",
     checkpointLimit: difficulty === "extreme" ? 12 : 8,
   };

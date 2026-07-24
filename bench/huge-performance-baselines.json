@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "reviewedBuild": "2026-07-24.42",
+  "reviewedBuild": "2026-07-24.44",
   "expectedCases": 3,
   "expectedSolved": 3,
   "maximumPerCase": {
-    "moves": 1047,
+    "moves": 1003,
     "visited": 1870,
     "generated": 14000,
     "retained": 3550,

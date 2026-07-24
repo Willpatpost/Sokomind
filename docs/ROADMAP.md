@@ -13,15 +13,20 @@ to production search.
 Current reference point
 -----------------------
 
-Build 2026-07-24.42 retains push-state compression while adding a small move-cost
-signal to structural ranking and reducing wasted macro work. Base, mirrored, and
-rotated Huge each produce the same replay-valid 1,047-move / 310-push first
-solution in 31-33 seconds on the reviewed machine, compared with 1,216 moves /
-324 pushes in 80-83 seconds for build `.41`. A bounded rewrite reaches 955 moves /
-294 pushes in about nine isolated-kernel seconds. An end-to-end production
-Chromium run showed the first decision at 24 seconds and that improvement at 30
-seconds total. The diagnostic 640-move solution remains benchmark evidence, not
-solver input or proof of optimality.
+Build 2026-07-24.44 canonicalizes every replay-valid result before presenting it:
+exact repeated-state cycles are erased, walking between the retained pushes is
+replaced by shortest legal walking, and motion after the solved state is removed.
+On the reviewed base, mirrored, and rotated Huge runs this reduces build `.42`'s
+1,047 moves / 310 pushes to the same 1,003 moves / 306 pushes without changing
+the 1,780 visited / 13,279 generated structural counters. The transformed runs
+completed in 35-36 seconds; the noisier base pass took 47 seconds. Later
+refinement rounds also have a separate, tightly bounded
+move-cost A* lane that may spend up to four temporary pushes when doing so lowers
+the player's moves. It also adds a label-aware FESS discovery lane for non-extreme
+boards. The reviewed Large result is 158 moves / 46 pushes after 465 expansions,
+identical under reflection and rotation. FESS remains disabled on Huge until its
+retained frontier meets the memory gate. The diagnostic 640-move solution remains
+benchmark evidence, not solver input or proof of optimality.
 
 Roadmap rules
 -------------
@@ -181,7 +186,8 @@ find better solutions and constrains complete search.
      incumbent is independently replayed.
 
 5. Rewrite completed solutions with exact local windows
-   Status: Complete in build 2026-07-24.41.
+   Status: Complete; move-first canonicalization and bounded extra-push windows
+   added in build 2026-07-24.43.
 
    Plan:
    - Partition a solution at stable structural milestones such as completed
@@ -189,6 +195,11 @@ find better solutions and constrains complete search.
    - Re-solve bounded windows between fixed boundary states using exact push
      search, expanding a window only when its state-space estimate is safe.
    - Optimize player moves. Push totals remain visible but are not the objective.
+   - Erase exact full-state cycles and replace walking between a fixed push
+     sequence with shortest legal walking before spending search states.
+   - Use a separate exact-robot move-cost lane for high-overhead windows; admit a
+     small, explicit number of temporary pushes only when the stitched path is
+     strictly shorter.
    - Expand window sizes and state budgets across requested refinement rounds,
      including a full-route push window from round three onward.
    - Reject a replacement unless the entire stitched path replays to the same or
@@ -275,10 +286,15 @@ flows are stable.
    - Compaction does not increase first-solution time or hide retained memory.
 
 8. Finish adaptive feature-space queues
-   Status: Partial; beams preserve structural and heuristic elites, but quotas
-   and identities are mostly fixed.
+   Status: Partial; build 2026-07-24.44 adds true persistent FESS cells, cyclic
+   fair traversal, and accumulated advisor weights. Adaptive cell definitions
+   and memory-safe Extreme/Huge operation remain.
 
    Plan:
+   - Keep the FESS control policy domain-independent while making every feature
+     and advisor respect typed box-to-storage compatibility.
+   - Preserve all legal single-push successors; same-box macros may accelerate
+     search but must never replace the complete action set.
    - Track the yield of room-flow, doorway, access, packing, mobility, and
      assignment feature cells across depths and restarts.
    - Adapt cell boundaries and quotas only from prior-window evidence.
@@ -290,6 +306,8 @@ flows are stable.
      browser-only.
 
    Acceptance gate:
+   - Crossed typed-goal and required-detour fixtures solve without label leakage
+     or beam truncation, identically under reflection and rotation.
    - Feature-conflict families retain required detours with fewer states than the
      fixed policy.
    - Adaptive queues do not regress small exact outcomes or Huge reliability.

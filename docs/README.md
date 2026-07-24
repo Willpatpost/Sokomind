@@ -123,6 +123,24 @@ worker counts, beam widths, state budgets, macros, and ordered strategic phases.
 The browser director builds the portfolio from this report and records the
 rationale in the search log.
 
+On non-extreme boards with at least four boxes, build `2026-07-24.44` also runs a
+true Feature-Space Exploration Search (FESS) discovery lane. Its persistent cells
+track packing-order progress, player connectivity, blocked room connectivity, and
+boxes outside the current plan. The scheduler visits those cells cyclically
+instead of collapsing every judgment into one scalar heuristic. Seven advisors
+recommend at most one successor each; recommended actions add zero weight and
+ordinary actions add one. Every legal single-push successor is still retained in
+the unbounded algorithm, while same-box macros only accelerate discovery.
+
+FESS is adapted to this game's typed Sokoban rules: box-to-goal assignments,
+packing order, doorway traffic, access blockers, and advisor rewards all require
+matching labels. Generic `X` boxes and `S` storages remain interchangeable. A
+reviewed isolated Large run finds 158 moves / 46 pushes after 465 expansions and
+2,308 generated states in about one second, identically under reflection and
+rotation. FESS is not yet launched for Extreme/Huge: its retained action frontier
+exceeded the desired memory budget there, so Huge continues to use the established
+structural and exact lanes.
+
 The regular **Ultimate Search** mode is still available. It uses a multi-worker
 portfolio that races complementary strategies such as Push Greedy, Weighted Push
 A*, and Push A*. All advanced workers use push-level search, dead-square
@@ -309,7 +327,7 @@ Packing checkpoints retire active bridge work and extreme puzzles run only the t
 best local exact handoffs, allowing the anytime workers to begin earlier. No stored
 solution path or puzzle-specific coordinate is used.
 
-Build `2026-07-24.42` pauses when it finds a replay-valid solution and shows its
+Build `2026-07-24.44` pauses when it finds a replay-valid solution and shows its
 moves, pushes, and combined total before changing the board. **Good enough**
 plays the incumbent; **Keep searching** starts the improvement/proof phase from
 that exact latest incumbent. Solutions are ranked strictly by move count; pushes
@@ -335,6 +353,17 @@ In an end-to-end production Chromium run, the first decision appeared in 24
 seconds and the 955-move improvement appeared 30 seconds after the initial
 request. These are regression measurements, not universal guarantees or
 optimality claims.
+
+Before any solution reaches the decision popup, build `.44` erases chronological
+cycles that return to the exact same robot-and-box state, replaces every walking
+span between retained pushes with a shortest legal route, and removes motion
+after the solved state. The reviewed base, mirrored, and rotated Huge structural
+results all fall from 1,047 moves / 310 pushes to 1,003 moves / 306 pushes with
+the same 1,780 visited / 13,279 generated structural counters. From refinement
+round two onward, a separate move-cost A* lane examines
+only a handful of high-overhead local windows under an explicit state budget. Its
+identity includes the exact robot square, and it may use at most four additional
+temporary pushes when the exact same endpoint can be reached in fewer moves.
 
 Guided beam and bounded DFS workers publish progress on both state-count and
 elapsed-time intervals, so expensive states cannot make a productive worker appear

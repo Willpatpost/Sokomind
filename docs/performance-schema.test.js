@@ -15,6 +15,7 @@ const ALGORITHMS = [
   "push-astar",
   "weighted-push-astar",
   "push-greedy",
+  "fess",
   "push-beam",
   "push-beam-restarts",
   "bounded-push-dfs",

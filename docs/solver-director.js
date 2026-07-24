@@ -375,11 +375,27 @@ function runBidirectionalSolver(purpose, analysis, options = {}) {
     phaseScope: recommendations.useEvacuation ? "evacuation" : "opening",
     handoffStage: "structural",
   }] : [];
+  const fessPlans = recommendations.useFess ? [{
+    algorithm: "fess",
+    side: "direct",
+    label: "Label-Aware FESS",
+    maxDepth: 460,
+    maxVisited: analysis.difficulty === "complex" ? 8000 : 12000,
+    fessMacros: true,
+    fessMacroPushes: 10,
+    fessMacroExplored: 12,
+    fessMacroResults: 3,
+    progressInterval: 250,
+    progressIntervalMs: 5000,
+    phaseScope: "opening",
+    handoffStage: "fess",
+  }] : [];
   const evacuationPlans = macroPlans.filter(plan => plan.phaseScope === "evacuation");
   const remainingMacroPlans = macroPlans.filter(plan => plan.phaseScope !== "evacuation");
   let directOrder = 0;
   const directQueue = [
     ...structuralPlans,
+    ...fessPlans,
     ...evacuationPlans,
     ...beamPlans,
     ...remainingMacroPlans,
@@ -774,6 +790,12 @@ function runBidirectionalSolver(purpose, analysis, options = {}) {
         maxVisited: Math.min(600000, 120000 * refinementRound),
         windowVisited: Math.min(40000, 8000 * refinementRound),
         windowPushes: rewriteWindowPushes,
+        moveWindowVisited: refinementRound >= 2
+          ? Math.min(8000, 3000 * refinementRound) : 0,
+        perMoveWindowVisited: 1000,
+        moveWindowAttempts: refinementRound >= 3 ? 8 : 4,
+        moveWindowPushes: refinementRound >= 3 ? [1, 2, 4, 8] : [1, 2, 4],
+        moveWindowExtraPushes: 4,
         queuePriority: -10,
       }], {priority: -10});
     }
@@ -1559,6 +1581,9 @@ function runBidirectionalSolver(purpose, analysis, options = {}) {
             ? (plan.prefixCost || 0) + data.bestPushes + data.bestEstimate : undefined,
           generated: data.generated?.toLocaleString(),
           peakFrontier: data.peakFrontier?.toLocaleString(),
+          featureCells: data.featureCells?.toLocaleString(),
+          featureCellVisits: data.featureCellVisits?.toLocaleString(),
+          advisors: data.advisorUses,
           compactions: data.compactions,
           frontier: data.frontier?.toLocaleString(),
           retained: data.retained?.toLocaleString(),

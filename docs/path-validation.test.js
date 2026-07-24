@@ -91,7 +91,7 @@ test("Ultimate scheduling retires stale phases and reclaims silent workers", () 
 
   assert.match(
     app,
-    /const directQueue = \[\s*\.\.\.structuralPlans,\s*\.\.\.evacuationPlans,\s*\.\.\.beamPlans/,
+    /const directQueue = \[\s*\.\.\.structuralPlans,\s*\.\.\.fessPlans,\s*\.\.\.evacuationPlans,\s*\.\.\.beamPlans/,
   );
   assert.match(app, /retirePendingPlans\(/);
   assert.match(app, /packing checkpoint superseded opening and bridge exploration/);

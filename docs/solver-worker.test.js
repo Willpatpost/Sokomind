@@ -1498,6 +1498,7 @@ test("puzzle analysis builds a board-derived worker plan", () => {
   assert.ok(analysis.surplusBoxes > 0);
   assert.equal(analysis.recommendations.useEvacuation, true);
   assert.equal(analysis.recommendations.useSequenceMacros, true);
+  assert.equal(analysis.recommendations.useFess, false);
   assert.equal(analysis.recommendations.reverseWorkerLimit, 2);
   assert.ok(analysis.reverseStartRegions >= 1);
   assert.ok(analysis.productiveReverseStartRegions >= 1);
@@ -1557,7 +1558,27 @@ test("puzzle analysis keeps simple boards on a small portfolio", () => {
   assert.equal(analysis.difficulty, "small");
   assert.equal(analysis.recommendations.beamAttempts, 1);
   assert.equal(analysis.recommendations.useEvacuation, false);
+  assert.equal(analysis.recommendations.useFess, false);
   assert.equal(analysis.phases.at(-1).id, "exact-proof");
+});
+
+test("puzzle analysis adds FESS for non-extreme boards with four boxes", () => {
+  const worker = loadWorker();
+  const analysis = worker.search({
+    algorithm: "analyze-puzzle",
+    state: stateFromRows([
+      "OOOOOOOOOO",
+      "O R      O",
+      "O XXXX   O",
+      "O SSSS   O",
+      "O        O",
+      "OOOOOOOOOO",
+    ]),
+  }).analysis;
+
+  assert.notEqual(analysis.difficulty, "extreme");
+  assert.equal(analysis.recommendations.useFess, true);
+  assert.ok(analysis.phases.some(phase => phase.id === "feature-space"));
 });
 
 test("reverse search charges one unit per pull regardless of walking", () => {
@@ -1635,6 +1656,103 @@ test("plan macro beam solves by chaining bounded single-box objectives", () => {
   assert.equal(result.performance.roomPatternBuilds, 0);
   assert.ok(result.performance.macroIntermediateStates > 0);
   assert.ok(result.performance.macroEndpointsRetained > 0);
+});
+
+test("FESS uses label-aware packing cells and solves crossed typed storage", () => {
+  const worker = loadWorker();
+  const rows = [
+    "OOOOOOOO",
+    "O R    O",
+    "O A B  O",
+    "O b a  O",
+    "O      O",
+    "OOOOOOOO",
+  ];
+  const state = stateFromRows(rows);
+  const board = worker.parse(state);
+  const order = worker.fessPackingOrder(board);
+  const analysis = worker.search({algorithm: "analyze-puzzle", state}).analysis;
+
+  assert.deepEqual(
+    Array.from(order, target => target.label).sort(),
+    ["A", "B"],
+  );
+  assert.equal(analysis.recommendations.useFess, false);
+  const outcomes = [rows, mirrorRows(rows), rotateRows(rows)].map(transformed =>
+    worker.search({
+      algorithm: "fess",
+      state: stateFromRows(transformed),
+      maxVisited: 1000,
+      maxDepth: 100,
+      fessMacros: true,
+      fessMacroExplored: 12,
+      fessMacroResults: 3,
+    }));
+  for (const result of outcomes) {
+    assert.equal(result.status, "solved");
+    assert.equal(result.bestPushes, 8);
+    assert.ok(result.featureCells >= 2);
+    assert.ok(result.featureCellVisits >= result.visited);
+    assert.ok(result.advisorUses.assignment > 0);
+    assert.ok(result.advisorUses.packing > 0);
+  }
+  assert.deepEqual(
+    outcomes.map(result => [result.bestMoves, result.visited, result.generated]),
+    outcomes.map(() => [outcomes[0].bestMoves, outcomes[0].visited, outcomes[0].generated]),
+  );
+});
+
+test("FESS keeps the reviewed Large result invariant across transforms", () => {
+  const worker = loadWorker();
+  const rows = [
+    "OOOOOOOOOO", "OOOOOOOSSO", "OOOOO  abO", "OOOOO XSSO", "OOOOOO  OO",
+    "OR     OOO", "OO A X X O", "OO BXO O O", "OO   O   O", "OOOOOOOOOO",
+  ];
+  const outcomes = [rows, mirrorRows(rows), rotateRows(rows)].map(transformed =>
+    worker.search({
+      algorithm: "fess",
+      state: stateFromRows(transformed),
+      maxDepth: 460,
+      maxVisited: 8000,
+      fessMacros: true,
+      fessMacroPushes: 10,
+      fessMacroExplored: 12,
+      fessMacroResults: 3,
+    }));
+
+  for (const result of outcomes) {
+    assert.equal(result.status, "solved");
+    assert.equal(result.bestMoves, 158);
+    assert.equal(result.bestPushes, 46);
+    assert.equal(result.visited, 465);
+    assert.equal(result.generated, 2308);
+  }
+});
+
+test("single-push FESS retains a required structural detour without beam truncation", () => {
+  const worker = loadWorker();
+  const state = stateFromRows([
+    "OOOOOOOOO",
+    "O a   b O",
+    "O       O",
+    "OOOO OOOO",
+    "O  A B  O",
+    "O   R   O",
+    "O       O",
+    "OOOOOOOOO",
+  ]);
+  const result = worker.search({
+    algorithm: "fess",
+    state,
+    maxVisited: 20000,
+    maxDepth: 100,
+    fessMacros: false,
+  });
+
+  assert.equal(result.status, "solved");
+  assert.equal(result.bestPushes, 12);
+  assert.ok(result.featureCells > 1);
+  assert.equal(result.transpositionEvictions, 0);
 });
 
 test("plan macro beam compares solved candidates by total moves", () => {
@@ -2346,6 +2464,98 @@ test("bridge A star identifies an incompatible landmark before searching", () =>
   assert.equal(result.path, null);
   assert.equal(result.visited, 0);
   assert.equal(result.terminationReason, "target-incompatible");
+});
+
+test("move bridge trades bounded temporary pushes for a shorter exact endpoint", () => {
+  const worker = loadWorker();
+  const state = stateFromRows([
+    "OOOOOOOOO",
+    "O   O   O",
+    "O   O   O",
+    "O   O   O",
+    "O   O   O",
+    "O   O   O",
+    "O  RA   O",
+    "O   O   O",
+    "O   O   O",
+    "O   O   O",
+    "O   O   O",
+    "O a     O",
+    "OOOOOOOOO",
+  ]);
+  const targetState = {
+    rows: state.rows,
+    robot: [6, 5],
+    boxes: [["6,4", "A"]],
+  };
+  const rejected = worker.search({
+    algorithm: "bridge-astar",
+    costMode: "moves",
+    state,
+    targetState,
+    moveUpperBound: 12,
+    pushUpperBound: 3,
+    maxVisited: 100,
+  });
+  const improved = worker.search({
+    algorithm: "bridge-astar",
+    costMode: "moves",
+    state,
+    targetState,
+    moveUpperBound: 12,
+    pushUpperBound: 4,
+    maxVisited: 100,
+  });
+
+  assert.equal(rejected.path, null);
+  assert.deepEqual(Array.from(improved.path), [
+    "Right", "Right", "Up", "Right", "Right", "Down", "Left", "Left",
+  ]);
+  assert.equal(improved.bestMoves, 8);
+  assert.equal(improved.bestPushes, 4);
+  assert.ok(improved.visited < 20);
+});
+
+test("solution refinement uses a bounded extra-push lane when it saves moves", () => {
+  const worker = loadWorker();
+  const state = stateFromRows([
+    "OOOOOOOOO",
+    "O   O   O",
+    "O   O   O",
+    "O   O   O",
+    "O   O   O",
+    "O   O   O",
+    "O RaA   O",
+    "O   O   O",
+    "O   O   O",
+    "O   O   O",
+    "O   O   O",
+    "O       O",
+    "OOOOOOOOO",
+  ]);
+  const incumbent = [
+    "Down", "Down", "Down", "Down", "Down",
+    "Right", "Right", "Right",
+    "Up", "Up", "Up", "Up", "Up",
+    "Left",
+  ];
+  const result = worker.search({
+    algorithm: "solution-window-rewrite",
+    state,
+    solutionPath: incumbent,
+    windowPushes: [],
+    moveWindowVisited: 100,
+    perMoveWindowVisited: 100,
+    moveWindowAttempts: 1,
+    moveWindowPushes: [1],
+    moveWindowExtraPushes: 4,
+  });
+
+  assert.equal(result.status, "solved");
+  assert.equal(result.initialMoves, 14);
+  assert.equal(result.bestMoves, 10);
+  assert.equal(result.bestPushes, 5);
+  assert.ok(result.moveVisited < 20);
 });
 
 test("exact solution windows remove a replay-valid walking detour", () => {
