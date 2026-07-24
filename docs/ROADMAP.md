@@ -156,54 +156,53 @@ Goal: turn the first structural solution into an incumbent that immediately help
 find better solutions and constrains complete search.
 
 4. Continue structural search after the first solution
-   Status: Complete in build 2026-07-24.39.
+   Status: Complete in build 2026-07-24.40.
 
    Plan:
    - Publish the first replay-valid solution immediately with its moves, pushes,
      and combined total. Wait for the user to play it or explicitly start the
      improving phase before changing the board.
-   - Continue from retained structural elites with the incumbent push count as an
-     upper bound.
+   - Continue from the exact latest incumbent path. Keep equal-push alternatives
+     eligible and progressively admit additional pushes when they reduce moves.
    - Explore alternative compatible assignments, doorway waves, packing orders,
      and deterministic diversity seeds instead of repeating the winning plan.
-   - Maintain a Pareto set ordered by pushes first, then player moves, memory,
-     and discovery time; emit only replay-validated improvements.
+   - Rank incumbents strictly by player moves; pushes remain telemetry and do not
+     decide whether a solution is better.
    - Persist the incumbent and enough bounded planner state to resume improvement
      after a worker restart or page reload.
 
    Acceptance gate:
    - First-solution latency is unchanged or better.
    - Reviewed multi-plan puzzles receive monotonically improving incumbents.
-   - Huge produces a solution below 330 pushes within a reviewed improvement
-     budget, with every incumbent independently replayed.
+   - Large moves monotonically toward its known 148-move optimum, and every
+     incumbent is independently replayed.
 
 5. Rewrite completed solutions with exact local windows
-   Status: Complete in build 2026-07-24.39.
+   Status: Complete in build 2026-07-24.40.
 
    Plan:
    - Partition a solution at stable structural milestones such as completed
      exports, imports, room packing, and goal commitments.
    - Re-solve bounded windows between fixed boundary states using exact push
      search, expanding a window only when its state-space estimate is safe.
-   - Optimize pushes first and player moves second; reconstruct shortest walking
-     paths between the retained push actions.
-   - Iterate over overlapping windows until a full pass produces no improvement,
-     while preventing oscillation with canonical boundary identities.
+   - Optimize player moves. Push totals remain visible but are not the objective.
+   - Expand window sizes and state budgets across requested refinement rounds,
+     including a full-route push window from round three onward.
    - Reject a replacement unless the entire stitched path replays to the same or
      a solved final state.
 
    Acceptance gate:
-   - Rewriting never worsens pushes or moves and never changes puzzle semantics.
+   - Rewriting never worsens moves and never changes puzzle semantics.
    - Authored detour fixtures are reduced to independently verified local optima.
    - Huge improves measurably beyond the raw structural solution within a bounded
      post-processing time and memory budget.
 
 6. Feed every incumbent into exact search
-   Status: Complete in build 2026-07-24.39.
+   Status: Complete in build 2026-07-24.40.
 
    Plan:
-   - Start or tighten exact IDA*/A* with the best replay-valid push bound as soon
-     as an incumbent is available.
+   - Use exact push search as an additional discovery method without presenting
+     push optimality as move optimality.
    - Propagate bound reductions safely to active shards and persisted checkpoints;
      restart only work whose proof contract is invalidated by the tighter bound.
    - Separate “best known solution,” admissible lower bound, and proven optimum
@@ -241,10 +240,9 @@ Delivered:
   330-push / 1,306-move result to 300 pushes / 1,222 moves in 17.2 seconds and
   7,683 local states. The same generic pass improved the independent diagnostic
   incumbent from 250 pushes to 240.
-- Each accepted incumbent tightens newly launched discovery work and restarts
-  active exact shards under the lower bound. Exhausting the strictly-better
-  contour proves push optimality; incomplete runs report best-known quality,
-  the current exact lower bound, and the remaining push gap separately.
+- Each accepted incumbent retargets newly launched discovery work. Exact push
+  contours remain useful discovery evidence, but exhausting one is explicitly
+  not treated as proof of minimum moves.
 
 
 Sprint 3 - Compact and nonredundant search

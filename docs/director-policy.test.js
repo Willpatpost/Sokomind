@@ -60,13 +60,13 @@ test("a structural plan receives a short, bounded head start", () => {
   assert.equal(structuralHeadStartMs(true, 4), 900);
 });
 
-test("anytime incumbents improve pushes first and moves second", () => {
+test("anytime incumbents improve moves regardless of push count", () => {
   const incumbent = {pushes: 12, moves: 40};
-  assert.equal(acceptsIncumbent({pushes: 11, moves: 100}, incumbent), true);
+  assert.equal(acceptsIncumbent({pushes: 11, moves: 100}, incumbent), false);
   assert.equal(acceptsIncumbent({pushes: 12, moves: 39}, incumbent), true);
   assert.equal(acceptsIncumbent({pushes: 12, moves: 40}, incumbent), false);
-  assert.equal(acceptsIncumbent({pushes: 13, moves: 1}, incumbent), false);
-  assert.ok(compareSolutionQuality({pushes: 11, moves: 100}, incumbent) < 0);
+  assert.equal(acceptsIncumbent({pushes: 13, moves: 1}, incumbent), true);
+  assert.ok(compareSolutionQuality({pushes: 11, moves: 100}, incumbent) > 0);
   assert.equal(tightenedWorkerBound(12, 0), 11);
   assert.equal(tightenedWorkerBound(12, 5), 6);
   assert.equal(tightenedWorkerBound(Infinity, 5), Infinity);

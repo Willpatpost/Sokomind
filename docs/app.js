@@ -1,4 +1,5 @@
 const LEVELS = SokomindLevels.LEVELS;
+const OPTIMAL_MOVES = SokomindLevels.OPTIMAL_MOVES;
 const {
   DIRS,
   positionKey: pos,
@@ -152,6 +153,7 @@ function renderLevels() {
 function render() {
   $("level-title").textContent = title(levelKey);
   $("move-count").textContent = moves;
+  $("optimal-move-count").textContent = OPTIMAL_MOVES[levelKey] ?? "\u2014";
   $("push-count").textContent = currentPushes();
   const board = $("board"), rows = state.board.rows;
   board.style.gridTemplateColumns = `repeat(${rows[0].length}, 1fr)`;
@@ -243,7 +245,8 @@ function showSolutionDecision(quality, handlers) {
   solutionDecision = handlers;
   $("solution-dialog-kind").textContent = quality.proven
     ? quality.provenLabel || "Optimal solution found"
-    : quality.improved ? "Better solution found" : "First solution found";
+    : quality.unchanged ? "Current best solution"
+      : quality.improved ? "Better solution found" : "First solution found";
   $("solution-dialog-title").textContent = quality.title ||
     (quality.canContinue === false ? "Best solution found" :
       "Is this solution good enough?");

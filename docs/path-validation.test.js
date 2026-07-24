@@ -70,15 +70,18 @@ test("solver solutions require an explicit play-or-continue decision", () => {
     "solution-continue",
     "solution-good-enough",
     "push-count",
+    "optimal-move-count",
   ]) {
     assert.match(html, new RegExp(`id="${id}"`));
   }
   assert.match(app, /function showSolutionDecision\(/);
   assert.match(app, /quality\.moves \+ quality\.pushes/);
   assert.match(director, /Paused search for solution decision/);
-  assert.match(director, /runBidirectionalSolver\(purpose, analysis, \{resumeImprovement: true\}\)/);
+  assert.match(director, /incumbent: candidate/);
+  assert.match(director, /improvementRound: refinementRound \+ 1/);
   assert.match(director, /EXACT_PUBLIC_SOLUTION_LABELS/);
   assert.match(director, /Replaying the incumbent through improvement windows/);
+  assert.match(director, /push-proof-is-not-move-proof/);
 });
 
 test("Ultimate scheduling retires stale phases and reclaims silent workers", () => {
@@ -124,7 +127,7 @@ test("Ultimate scheduling retires stale phases and reclaims silent workers", () 
   assert.match(app, /requiredWorkReleased/);
   assert.match(app, /finishRequiredPlan\(plan\)/);
   assert.match(app, /exactRoundShardCount = anytimeWorkers[\s\S]*?\? 1/);
-  assert.match(app, /provedOptimal = exactRoundComplete && bestIncumbent/);
+  assert.match(app, /provedPushOptimal = exactRoundComplete && bestIncumbent/);
   assert.match(app, /provedUnsolvable = exactRoundComplete &&[\s\S]*!bestIncumbent/);
   assert.match(app, /discardedExactIncumbent \? Infinity : currentUpperBound/);
   assert.doesNotMatch(app, /searchLog\.splice\(0/);

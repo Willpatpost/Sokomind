@@ -5,10 +5,6 @@ const ANYTIME_INCUMBENT_MAX_ENTRIES = 4;
 const EXACT_PUBLIC_SOLUTION_LABELS = Object.freeze({
   bfs: {provenLabel: "Optimal BFS solution found", title: "Best solution found"},
   astar: {provenLabel: "Optimal A* solution found", title: "Best solution found"},
-  "push-astar": {
-    provenLabel: "Push-optimal A* solution found",
-    title: "Best push solution found",
-  },
 });
 const SOLVER_WORKER_WATCHDOG_MS = globalThis.SOKOMIND_WORKER_WATCHDOG_MS || 120000;
 let exactCheckpointSaveWarningShown = false;
@@ -131,8 +127,7 @@ function saveAnytimeIncumbent(serialized, incumbent) {
   }
   const existing = saved[problemHash];
   if (Array.isArray(existing?.path) &&
-      (existing.pushes < incumbent.pushes ||
-        (existing.pushes === incumbent.pushes && existing.moves <= incumbent.moves))) {
+      existing.moves <= incumbent.moves) {
     return false;
   }
   saved[problemHash] = {
@@ -224,6 +219,9 @@ function startBidirectionalSolver(purpose, options = {}) {
 function runBidirectionalSolver(purpose, analysis, options = {}) {
   const campaignInitialState = cloneState(state);
   const campaignSerializedState = serializeState(state);
+  const refinementRound = options.resumeImprovement
+    ? Math.max(1, Number(options.improvementRound) || 1) : 0;
+  const optimalMoveTarget = SokomindLevels.OPTIMAL_MOVES[levelKey];
   setControlsBusy(true);
   setStatus(`Ultimate Bidirectional ${SOLVER_BUILD} is searching...`);
   const hardware = navigator.hardwareConcurrency || 2;
@@ -754,21 +752,24 @@ function runBidirectionalSolver(purpose, analysis, options = {}) {
         status: first ? "solved" : "improved",
         reason: first ? "solution" : "better-incumbent",
       });
-    const rewriteKey = `${candidate.pushes}/${candidate.moves}`;
+    const rewriteKey = `${candidate.pushes}/${candidate.moves}/r${refinementRound}`;
     if (purpose !== "hint" && restoringIncumbent &&
         options.resumeImprovement && !rewriteQueued.has(rewriteKey)) {
       rewriteQueued.add(rewriteKey);
+      const rewriteWindowPushes = refinementRound >= 3
+        ? [...new Set([16, 32, candidate.pushes])]
+        : refinementRound === 2 ? [12, 24, 32] : [8, 16];
       enqueueDirectPlans([{
         algorithm: "solution-window-rewrite",
         side: "direct",
-        label: `Exact Window Rewrite ${candidate.pushes}p`,
+        label: `Exact Window Rewrite R${refinementRound} ${candidate.pushes}p`,
         anytimeGuided: true,
         handoffStage: "rewrite",
         state: campaignSerializedState,
         solutionPath: candidate.path,
-        maxVisited: 120000,
-        windowVisited: 8000,
-        windowPushes: [8, 16],
+        maxVisited: Math.min(600000, 120000 * refinementRound),
+        windowVisited: Math.min(40000, 8000 * refinementRound),
+        windowPushes: rewriteWindowPushes,
         queuePriority: 2,
       }], {priority: 2});
     }
@@ -807,11 +808,17 @@ function runBidirectionalSolver(purpose, analysis, options = {}) {
         workers: pausedWorkers,
         status: "awaiting-user",
       });
+      const reachedKnownOptimum = Number.isFinite(optimalMoveTarget) &&
+        candidate.moves <= optimalMoveTarget;
       showSolutionDecision({
         pushes: candidate.pushes,
         moves: candidate.moves,
         strategy,
         improved: !first,
+        proven: reachedKnownOptimum,
+        provenLabel: reachedKnownOptimum ? "Optimal move solution found" : undefined,
+        title: reachedKnownOptimum ? "Best solution found" : undefined,
+        canContinue: !reachedKnownOptimum,
       }, {
         accept: () => {
           appendSearchLog("control", "User accepted the current solution", {
@@ -826,11 +833,16 @@ function runBidirectionalSolver(purpose, analysis, options = {}) {
           animate();
         },
         continueSearch: () => {
+          if (reachedKnownOptimum) return;
           appendSearchLog("control", "User requested a better solution", {
             incumbentPushes: candidate.pushes,
             incumbentMoves: candidate.moves,
           });
-          runBidirectionalSolver(purpose, analysis, {resumeImprovement: true});
+          runBidirectionalSolver(purpose, analysis, {
+            resumeImprovement: true,
+            improvementRound: refinementRound + 1,
+            incumbent: candidate,
+          });
         },
       });
     }
@@ -1108,11 +1120,20 @@ function runBidirectionalSolver(purpose, analysis, options = {}) {
 
   const launch = (plan) => {
     const worker = new Worker(SOLVER_WORKER_URL);
-    const configuredUpperBound = plan.upperBound ?? planUpperBound(plan);
+    const incumbentPushAllowance = refinementRound
+      ? Math.min(8, refinementRound * 2) : 0;
+    const baseConfiguredUpperBound = plan.upperBound ?? planUpperBound(plan);
+    const configuredUpperBound = refinementRound && plan.upperBound === undefined &&
+        Number.isFinite(baseConfiguredUpperBound)
+      ? baseConfiguredUpperBound + incumbentPushAllowance
+      : baseConfiguredUpperBound;
     const incumbentUpperBound = bestIncumbent
-      ? SokomindDirectorPolicy.tightenedWorkerBound(
-          bestIncumbent.pushes, plan.prefixCost || 0,
-        )
+      ? plan.persistentExact
+        ? SokomindDirectorPolicy.tightenedWorkerBound(
+            bestIncumbent.pushes, plan.prefixCost || 0,
+          )
+        : Math.max(0, bestIncumbent.pushes + incumbentPushAllowance -
+            Math.max(0, plan.prefixCost || 0))
       : Infinity;
     const effectiveUpperBound = Math.min(
       configuredUpperBound ?? Infinity,
@@ -1709,7 +1730,7 @@ function runBidirectionalSolver(purpose, analysis, options = {}) {
 
         const exactRoundComplete = exhaustedExactShard &&
           exactShardsExhausted === exactRoundShardCount;
-        const provedOptimal = exactRoundComplete && bestIncumbent &&
+        const provedPushOptimal = exactRoundComplete && bestIncumbent &&
           effectiveUpperBound ===
             SokomindDirectorPolicy.tightenedWorkerBound(bestIncumbent.pushes);
         const provedUnsolvable = exactRoundComplete &&
@@ -1725,29 +1746,38 @@ function runBidirectionalSolver(purpose, analysis, options = {}) {
         doneWorkers++;
         finishRequiredPlan(plan);
         releaseWorker({reason: data.terminationReason || "completed"});
-        if (provedOptimal) {
+        if (provedPushOptimal) {
           settled = true;
           solverAnytimeActive = false;
           workers.forEach(item => item.terminate()); workers = [];
           clearSearchTelemetry();
           setControlsBusy(false);
-          setStatus(
-            `Proved push-optimal: ${bestIncumbent.pushes} pushes / ` +
-            `${bestIncumbent.moves} moves (${totalVisited.toLocaleString()} states).`,
-          );
-          appendSearchLog("proof", "Exact search proved the incumbent push-optimal", {
+          const moveOptimal = Number.isFinite(optimalMoveTarget) &&
+            bestIncumbent.moves <= optimalMoveTarget;
+          setStatus(moveOptimal
+            ? `Reached the known optimum: ${bestIncumbent.moves} moves.`
+            : `No move improvement found in refinement round ${refinementRound}; ` +
+              `current best is ${bestIncumbent.moves} moves.`);
+          appendSearchLog("proof", "Exact push proof completed the refinement round", {
             pushes: bestIncumbent.pushes,
             moves: bestIncumbent.moves,
+            optimalMoveTarget,
+            refinementRound,
             states: totalVisited.toLocaleString(),
-            status: "proven-optimal",
-            reason: "no-better-push-solution",
+            status: moveOptimal ? "proven-move-optimal" : "move-incumbent-unchanged",
+            reason: moveOptimal ? "known-move-target-reached" : "push-proof-is-not-move-proof",
           });
           showSolutionDecision({
             pushes: bestIncumbent.pushes,
             moves: bestIncumbent.moves,
             strategy: bestIncumbent.strategy,
-            proven: true,
-            canContinue: false,
+            proven: moveOptimal,
+            provenLabel: moveOptimal ? "Optimal move solution found" : undefined,
+            title: moveOptimal
+              ? "Best solution found"
+              : `No improvement in round ${refinementRound}`,
+            canContinue: !moveOptimal,
+            unchanged: !moveOptimal,
           }, {
             accept: () => {
               setStatus(
@@ -1757,7 +1787,14 @@ function runBidirectionalSolver(purpose, analysis, options = {}) {
               animation = [...bestIncumbent.path];
               animate();
             },
-            continueSearch: () => {},
+            continueSearch: () => {
+              if (moveOptimal) return;
+              runBidirectionalSolver(purpose, analysis, {
+                resumeImprovement: true,
+                improvementRound: refinementRound + 1,
+                incumbent: bestIncumbent,
+              });
+            },
           });
           return;
         }
@@ -1793,7 +1830,8 @@ function runBidirectionalSolver(purpose, analysis, options = {}) {
     });
   };
 
-  const savedIncumbent = loadAnytimeIncumbent(campaignSerializedState);
+  const savedIncumbent = options.incumbent ||
+    loadAnytimeIncumbent(campaignSerializedState);
   if (savedIncumbent) {
     appendSearchLog("director", "Restoring replay-validated anytime incumbent", {
       pushes: savedIncumbent.pushes,
@@ -2042,7 +2080,15 @@ function startSolver(purpose) {
             const serialized = serializeState(state);
             saveAnytimeIncumbent(serialized, {...candidate, strategy: plan.label});
             rememberSolverPushBound(candidate.pushes);
-            const exactGuarantee = EXACT_PUBLIC_SOLUTION_LABELS[plan.algorithm] || null;
+            const moveTarget = SokomindLevels.OPTIMAL_MOVES[levelKey];
+            const reachedKnownOptimum = Number.isFinite(moveTarget) &&
+              candidate.moves <= moveTarget;
+            const exactGuarantee = reachedKnownOptimum
+              ? {
+                  provenLabel: "Optimal move solution found",
+                  title: "Best solution found",
+                }
+              : EXACT_PUBLIC_SOLUTION_LABELS[plan.algorithm] || null;
             showSolutionDecision({
               pushes: candidate.pushes,
               moves: candidate.moves,
@@ -2071,7 +2117,11 @@ function startSolver(purpose) {
                   incumbentPushes: candidate.pushes,
                   incumbentMoves: candidate.moves,
                 });
-                startBidirectionalSolver("solve", {resumeImprovement: true});
+                startBidirectionalSolver("solve", {
+                  resumeImprovement: true,
+                  improvementRound: 1,
+                  incumbent: {...candidate, strategy: plan.label},
+                });
               },
             });
           }

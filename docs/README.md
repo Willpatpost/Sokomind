@@ -153,8 +153,9 @@ focused, detour, and room-milestone profiles with independent deterministic
 seeds. The milestone beam reserves capacity for distinct opening push sequences
 and room-crossing histories, including moves that temporarily worsen the raw
 box-to-goal estimate.
-Completed games save their best push count as an incumbent upper bound; later
-searches prune states whose push lower bound already exceeds that solution.
+Completed games retain their push count as a scheduling hint, but move-refinement
+rounds use inclusive and progressively expanded push ceilings so a shorter route
+is not rejected merely because it uses the same or more pushes.
 After the beam attempts, complex boards run fresh-worker limited-discrepancy
 depth-first searches. Early contours explore only the top-ranked continuation;
 later contours admit progressively less obvious choices. This prevents every
@@ -308,15 +309,17 @@ Packing checkpoints retire active bridge work and extreme puzzles run only the t
 best local exact handoffs, allowing the anytime workers to begin earlier. No stored
 solution path or puzzle-specific coordinate is used.
 
-Build `2026-07-24.39` pauses when it finds a replay-valid solution and shows its
+Build `2026-07-24.40` pauses when it finds a replay-valid solution and shows its
 moves, pushes, and combined total before changing the board. **Good enough**
 plays the incumbent; **Keep searching** starts the improvement/proof phase from
-that persisted incumbent and its tighter bound. The improvement worker receives
-the complete incumbent path and re-solves overlapping sections to remove
-unnecessary pushes or walking. A later improvement pauses at the same decision
-boundary, so this loop continues until the user accepts. Exact BFS and A* modes
-hide the redundant improvement action because their returned objective is already
-optimal. The game header reports live pushes alongside time and moves.
+that exact latest incumbent. Solutions are ranked strictly by move count; pushes
+remain visible telemetry. Refinement admits equal-push alternatives, progressively
+permits additional pushes, and expands its exact overlapping windows and budgets
+on later rounds instead of deterministically repeating the same pass. An exact
+push proof is not presented as move optimality. Exact BFS and A* hide the
+redundant improvement action because their returned move count is already
+optimal. The game header reports live pushes and the known optimal move target:
+Ultra Tiny 1, Tiny 20, Medium 34, and Large 148; Huge is currently unknown.
 
 The released Huge structural plan still produces 330 pushes / 1,306 moves after
 3,752 structural states and 19,689 generated candidates. Its bounded overlapping

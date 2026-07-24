@@ -13,6 +13,12 @@
   const LEVELS = typeof module !== "undefined" && module.exports
     ? require("../shared/sokomind-conformance.json").levels
     : EMBEDDED_LEVELS;
+  const OPTIMAL_MOVES = Object.freeze({
+    "ultra-tiny": 1,
+    tiny: 20,
+    medium: 34,
+    large: 148,
+  });
 
   function stateFromRows(rows) {
     let robot = null;
@@ -26,7 +32,7 @@
     return {rows: [...rows], robot, boxes};
   }
 
-  const api = {LEVELS, EMBEDDED_LEVELS, stateFromRows};
+  const api = {LEVELS, EMBEDDED_LEVELS, OPTIMAL_MOVES, stateFromRows};
   root.SokomindLevels = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof self !== "undefined" ? self : globalThis);

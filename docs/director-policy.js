@@ -165,7 +165,7 @@
     if (!left && !right) return 0;
     if (!left) return 1;
     if (!right) return -1;
-    return left.pushes - right.pushes || left.moves - right.moves;
+    return left.moves - right.moves;
   }
 
   function acceptsIncumbent(candidate, incumbent = null) {

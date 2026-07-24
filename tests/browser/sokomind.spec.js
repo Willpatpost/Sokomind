@@ -178,6 +178,7 @@ test("page load, selection, keyboard completion, stored bounds, and build displa
   await expect(page.locator("#solver-build")).toHaveText(EXPECTED_BUILD);
   await page.getByRole("button", {name: /Tiny/}).nth(1).click();
   await expect(page.locator("#level-title")).toHaveText("Tiny");
+  await expect(page.locator("#optimal-move-count")).toHaveText("20");
   await page.getByRole("button", {name: /Ultra Tiny/}).click();
   await page.locator("#board").press("ArrowDown");
   await expect(page.locator("#complete-dialog")).toBeVisible();
@@ -200,9 +201,9 @@ test("actual worker supports hint, solve, stop, undo, and reset during animation
   await expect(page.locator("#solution-pushes")).toHaveText("5");
   await expect(page.locator("#solution-total")).toHaveText("27");
   await expect(page.locator("#solution-dialog-kind")).toHaveText(
-    "Push-optimal A* solution found",
+    "First solution found",
   );
-  await expect(page.getByRole("button", {name: "Keep searching"})).toBeHidden();
+  await expect(page.getByRole("button", {name: "Keep searching"})).toBeVisible();
   await expect(page.locator("#move-count")).toHaveText("0");
   await expect(page.locator("#push-count")).toHaveText("0");
   await page.getByRole("button", {name: /Good enough/}).click();
@@ -319,7 +320,7 @@ test("Ultimate waits for a decision, then searches again and offers the improvem
     message => message.algorithm === "solution-window-rewrite",
   ));
   expect(rewrite.state.robot).toEqual([1, 2]);
-  expect(rewrite.upperBound).toBe(0);
+  expect(rewrite.upperBound).toBe(3);
   expect(rewrite.solutionPath).toEqual(["Left", "Down", "Up", "Right", "Down"]);
   await expect(page.locator("#search-log-text")).toHaveValue(
     /Replaying the incumbent through improvement windows/,
@@ -328,7 +329,7 @@ test("Ultimate waits for a decision, then searches again and offers the improvem
   await expect(page.locator("#search-log-text")).toHaveValue(/replay-validated improvement/);
   await expect(page.locator("#search-log-text")).toHaveValue(/pushes=1 moves=1/);
   await expect(page.locator("#solution-dialog")).toBeVisible();
-  await expect(page.locator("#solution-dialog-kind")).toHaveText("Better solution found");
+  await expect(page.locator("#solution-dialog-kind")).toHaveText("Optimal move solution found");
   await expect(page.locator("#solution-moves")).toHaveText("1");
   await expect(page.locator("#solution-pushes")).toHaveText("1");
   await expect(page.locator("#solution-total")).toHaveText("2");

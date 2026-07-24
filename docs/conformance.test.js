@@ -5,7 +5,7 @@ const test = require("node:test");
 const vm = require("node:vm");
 
 const fixtures = require("../shared/sokomind-conformance.json");
-const {LEVELS, EMBEDDED_LEVELS, stateFromRows} = require("./levels.js");
+const {LEVELS, EMBEDDED_LEVELS, OPTIMAL_MOVES, stateFromRows} = require("./levels.js");
 
 function loadWorker() {
   const source = ["solver-engine.js", "solver-search.js"]
@@ -25,6 +25,12 @@ function errorKind(error) {
 test("browser and benchmark level catalogs match the shared canonical catalog", () => {
   assert.deepEqual(LEVELS, fixtures.levels);
   assert.deepEqual(EMBEDDED_LEVELS, fixtures.levels);
+  assert.deepEqual(OPTIMAL_MOVES, {
+    "ultra-tiny": 1,
+    tiny: 20,
+    medium: 34,
+    large: 148,
+  });
 });
 
 test("browser worker passes shared valid parsing and rule cases", () => {
