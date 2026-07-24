@@ -121,6 +121,12 @@ function saveAnytimeIncumbent(serialized, incumbent) {
   for (const [key, entry] of Object.entries(saved)) {
     if (entry?.solverBuild !== SOLVER_BUILD) delete saved[key];
   }
+  const existing = saved[problemHash];
+  if (Array.isArray(existing?.path) &&
+      (existing.pushes < incumbent.pushes ||
+        (existing.pushes === incumbent.pushes && existing.moves <= incumbent.moves))) {
+    return false;
+  }
   saved[problemHash] = {
     solverBuild: SOLVER_BUILD,
     problemHash,
@@ -164,9 +170,9 @@ function solverPlans(algorithm) {
     {algorithm: "push-astar", label: "Push A*"},
   ];
 }
-function startBidirectionalSolver(purpose) {
+function startBidirectionalSolver(purpose, options = {}) {
   stop(false); setControlsBusy(true);
-  resetSearchLog();
+  if (!options.resumeImprovement) resetSearchLog();
   setStatus(`Ultimate Bidirectional ${SOLVER_BUILD} is analyzing the puzzle...`);
   appendSearchLog("director", "Reading puzzle before worker allocation",
     {level: levelKey, boxes: state.boxes.size, floor: state.board.floor.size});
@@ -191,7 +197,7 @@ function startBidirectionalSolver(purpose) {
       appendSearchLog("error", "Planner returned no analysis");
       return;
     }
-    runBidirectionalSolver(purpose, data.analysis);
+    runBidirectionalSolver(purpose, data.analysis, options);
   };
   planner.onerror = () => {
     if (!workers.includes(planner)) return;
@@ -207,9 +213,10 @@ function startBidirectionalSolver(purpose) {
   };
   planner.postMessage({algorithm: "analyze-puzzle", state: serializeState(state)});
 }
-function runBidirectionalSolver(purpose, analysis) {
+function runBidirectionalSolver(purpose, analysis, options = {}) {
   const campaignInitialState = cloneState(state);
   const campaignSerializedState = serializeState(state);
+  setControlsBusy(true);
   setStatus(`Ultimate Bidirectional ${SOLVER_BUILD} is searching...`);
   const hardware = navigator.hardwareConcurrency || 2;
   const recommendations = analysis.recommendations;
@@ -395,6 +402,7 @@ function runBidirectionalSolver(purpose, analysis) {
   let firstSolutionAt = null;
   let exactRestartRequested = false, restartingExact = false;
   let restartExactForIncumbent = () => {};
+  let restoringIncumbent = false;
   const rewriteQueued = new Set();
   const completedPhases = [];
 
@@ -721,10 +729,12 @@ function runBidirectionalSolver(purpose, analysis) {
     const first = previous === null;
     bestIncumbent = {...candidate, strategy};
     saveAnytimeIncumbent(campaignSerializedState, bestIncumbent);
-    if (exactShardsStarted) exactRestartRequested = true;
+    if (!restoringIncumbent && exactShardsStarted) exactRestartRequested = true;
     firstSolutionAt ??= performance.now();
     rememberSolverPushBound(candidate.pushes);
-    clearExactCheckpoints(exactCheckpointProblemHash(campaignSerializedState));
+    if (!restoringIncumbent) {
+      clearExactCheckpoints(exactCheckpointProblemHash(campaignSerializedState));
+    }
     appendSearchLog(first ? "solution" : "improvement",
       `${strategy} produced a replay-validated ${first ? "solution" : "improvement"}`, {
         pushes: candidate.pushes,
@@ -737,7 +747,8 @@ function runBidirectionalSolver(purpose, analysis) {
         reason: first ? "solution" : "better-incumbent",
       });
     const rewriteKey = `${candidate.pushes}/${candidate.moves}`;
-    if (purpose !== "hint" && !rewriteQueued.has(rewriteKey)) {
+    if (purpose !== "hint" && restoringIncumbent &&
+        options.resumeImprovement && !rewriteQueued.has(rewriteKey)) {
       rewriteQueued.add(rewriteKey);
       enqueueDirectPlans([{
         algorithm: "solution-window-rewrite",
@@ -762,18 +773,52 @@ function runBidirectionalSolver(purpose, analysis) {
       setStatus(candidate.path.length
         ? `Hint: ${candidate.path[0]} - ${candidate.moves} moves remain (${strategy})`
         : "This puzzle is already solved.");
-    } else if (first) {
+    } else if (restoringIncumbent && options.resumeImprovement) {
       solverAnytimeActive = true;
       setStatus(
-        `${strategy} found ${candidate.pushes} pushes / ${candidate.moves} moves; ` +
-        `continuing to improve.`,
+        `Best known: ${candidate.pushes} pushes / ${candidate.moves} moves; ` +
+        `searching for a better solution.`,
       );
-      animation = candidate.path; animate();
     } else {
-      setStatus(
-        `Improved to ${candidate.pushes} pushes / ${candidate.moves} moves with ${strategy}; ` +
-        `searching for a better incumbent.`,
-      );
+      settled = true;
+      solverAnytimeActive = false;
+      const pausedWorkers = workers.length;
+      workers.forEach(worker => worker.terminate()); workers = [];
+      clearSearchTelemetry();
+      setControlsBusy(false);
+      appendSearchLog("director", "Paused search for solution decision", {
+        pushes: candidate.pushes,
+        moves: candidate.moves,
+        combined: candidate.pushes + candidate.moves,
+        workers: pausedWorkers,
+        status: "awaiting-user",
+      });
+      showSolutionDecision({
+        pushes: candidate.pushes,
+        moves: candidate.moves,
+        strategy,
+        improved: !first,
+      }, {
+        accept: () => {
+          appendSearchLog("control", "User accepted the current solution", {
+            pushes: candidate.pushes,
+            moves: candidate.moves,
+            combined: candidate.pushes + candidate.moves,
+          });
+          setStatus(
+            `Playing ${candidate.pushes}-push / ${candidate.moves}-move solution.`,
+          );
+          animation = [...candidate.path];
+          animate();
+        },
+        continueSearch: () => {
+          appendSearchLog("control", "User requested a better solution", {
+            incumbentPushes: candidate.pushes,
+            incumbentMoves: candidate.moves,
+          });
+          runBidirectionalSolver(purpose, analysis, {resumeImprovement: true});
+        },
+      });
     }
     return true;
   };
@@ -1678,6 +1723,23 @@ function runBidirectionalSolver(purpose, analysis) {
             status: "proven-optimal",
             reason: "no-better-push-solution",
           });
+          showSolutionDecision({
+            pushes: bestIncumbent.pushes,
+            moves: bestIncumbent.moves,
+            strategy: bestIncumbent.strategy,
+            proven: true,
+            canContinue: false,
+          }, {
+            accept: () => {
+              setStatus(
+                `Playing proven ${bestIncumbent.pushes}-push / ` +
+                `${bestIncumbent.moves}-move solution.`,
+              );
+              animation = [...bestIncumbent.path];
+              animate();
+            },
+            continueSearch: () => {},
+          });
           return;
         }
         if (provedUnsolvable) {
@@ -1719,8 +1781,12 @@ function runBidirectionalSolver(purpose, analysis) {
       moves: savedIncumbent.moves,
       strategy: savedIncumbent.strategy,
     });
+    restoringIncumbent = true;
     finish(savedIncumbent.path, savedIncumbent.strategy || "Saved Incumbent");
+    restoringIncumbent = false;
   }
+
+  if (settled) return;
 
   launch({
     mode: "bidir-forward",
@@ -1926,11 +1992,14 @@ function startSolver(purpose) {
         goalAccessMs: data.performance?.goalAccessMs,
       });
       if (data.path) {
-        const path = validatePathToGoal(data.path);
-        if (path !== null) {
+        const candidate = evaluateSolutionPath(data.path);
+        if (candidate !== null) {
           settled = true;
           appendSearchLog("solution", `${plan.label} produced a replay-validated solution`, {
-            moves: path.length, states: totalVisited.toLocaleString(),
+            moves: candidate.moves,
+            pushes: candidate.pushes,
+            combined: candidate.moves + candidate.pushes,
+            states: totalVisited.toLocaleString(),
             status: "solved", reason: "solution",
           });
           const cancellationStarted = performance.now(), cancelledWorkers = workers.length;
@@ -1942,12 +2011,39 @@ function startSolver(purpose) {
           });
           setControlsBusy(false);
           if (purpose === "hint") {
-            setStatus(path.length
-              ? `Hint: ${path[0]} - ${path.length} moves remain (${plan.label})`
+            setStatus(candidate.path.length
+              ? `Hint: ${candidate.path[0]} - ${candidate.moves} moves remain (${plan.label})`
               : "This puzzle is already solved.");
           } else {
-            setStatus(`Found ${path.length} moves with ${plan.label} after ${totalVisited.toLocaleString()} states.`);
-            animation = path; animate();
+            const serialized = serializeState(state);
+            saveAnytimeIncumbent(serialized, {...candidate, strategy: plan.label});
+            rememberSolverPushBound(candidate.pushes);
+            showSolutionDecision({
+              pushes: candidate.pushes,
+              moves: candidate.moves,
+              strategy: plan.label,
+              improved: false,
+            }, {
+              accept: () => {
+                appendSearchLog("control", "User accepted the current solution", {
+                  pushes: candidate.pushes,
+                  moves: candidate.moves,
+                  combined: candidate.pushes + candidate.moves,
+                });
+                setStatus(
+                  `Playing ${candidate.pushes}-push / ${candidate.moves}-move solution.`,
+                );
+                animation = [...candidate.path];
+                animate();
+              },
+              continueSearch: () => {
+                appendSearchLog("control", "User requested Ultimate improvement search", {
+                  incumbentPushes: candidate.pushes,
+                  incumbentMoves: candidate.moves,
+                });
+                startBidirectionalSolver("solve", {resumeImprovement: true});
+              },
+            });
           }
           return;
         }

@@ -194,12 +194,20 @@ test("actual worker supports hint, solve, stop, undo, and reset during animation
 
   await page.getByRole("button", {name: /Tiny/}).nth(1).click();
   await page.getByRole("button", {name: "Solve"}).click();
-  await expect(page.locator("#status")).toContainText("Found");
+  await expect(page.locator("#solution-dialog")).toBeVisible();
+  await expect(page.locator("#solution-moves")).toHaveText("22");
+  await expect(page.locator("#solution-pushes")).toHaveText("5");
+  await expect(page.locator("#solution-total")).toHaveText("27");
+  await expect(page.locator("#move-count")).toHaveText("0");
+  await page.getByRole("button", {name: /Good enough/}).click();
+  await expect(page.locator("#status")).toContainText("Playing");
   await page.getByRole("button", {name: "Undo"}).click();
   await expect(page.locator("#status")).toHaveText("Undid one move.");
 
   await page.getByRole("button", {name: "Solve"}).click();
-  await expect(page.locator("#status")).toContainText("Found");
+  await expect(page.locator("#solution-dialog")).toBeVisible();
+  await page.getByRole("button", {name: /Good enough/}).click();
+  await expect(page.locator("#status")).toContainText("Playing");
   await page.getByRole("button", {name: "Reset"}).click();
   await expect(page.locator("#status")).toHaveText("Level reset.");
   await expect(page.locator("#move-count")).toHaveText("0");
@@ -281,10 +289,20 @@ test("Ultimate gives the structural planner exclusive direct capacity during its
   ).length)).toBeGreaterThan(1);
 });
 
-test("Ultimate publishes its first solution and continues with an exact rewrite", async ({page}) => {
+test("Ultimate waits for a decision, then searches again and offers the improvement", async ({page}) => {
   await installScriptedWorker(page, "anytime");
   await enterGame(page);
   await page.getByRole("button", {name: "Solve"}).click();
+  await expect(page.locator("#solution-dialog")).toBeVisible();
+  await expect(page.locator("#solution-dialog-kind")).toHaveText("First solution found");
+  await expect(page.locator("#solution-moves")).toHaveText("5");
+  await expect(page.locator("#solution-pushes")).toHaveText("1");
+  await expect(page.locator("#solution-total")).toHaveText("6");
+  await expect(page.locator("#move-count")).toHaveText("0");
+  expect(await page.evaluate(() => window.__workerMessages.some(
+    message => message.algorithm === "solution-window-rewrite",
+  ))).toBe(false);
+  await page.getByRole("button", {name: "Keep searching"}).click();
   await expect.poll(() => page.evaluate(() => window.__workerMessages.some(
     message => message.algorithm === "solution-window-rewrite",
   ))).toBe(true);
@@ -296,4 +314,13 @@ test("Ultimate publishes its first solution and continues with an exact rewrite"
   await expect(page.locator("#search-log-text")).toHaveValue(/replay-validated solution/);
   await expect(page.locator("#search-log-text")).toHaveValue(/replay-validated improvement/);
   await expect(page.locator("#search-log-text")).toHaveValue(/pushes=1 moves=1/);
+  await expect(page.locator("#solution-dialog")).toBeVisible();
+  await expect(page.locator("#solution-dialog-kind")).toHaveText("Better solution found");
+  await expect(page.locator("#solution-moves")).toHaveText("1");
+  await expect(page.locator("#solution-pushes")).toHaveText("1");
+  await expect(page.locator("#solution-total")).toHaveText("2");
+  await expect(page.locator("#move-count")).toHaveText("0");
+  await page.getByRole("button", {name: /Good enough/}).click();
+  await expect(page.locator("#complete-dialog")).toBeVisible();
+  await expect(page.locator("#move-count")).toHaveText("1");
 });

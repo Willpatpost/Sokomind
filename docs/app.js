@@ -35,6 +35,7 @@ let searchLog = [], searchStartedAt = null;
 let searchRunId = null, searchLogSequence = 0;
 let searchTelemetryTimers = [];
 let solverAnytimeActive = false;
+let solutionDecision = null;
 
 const searchLogText = (entries = searchLog) => formatSearchLogText(entries);
 const searchLogJsonLines = (entries = searchLog) => formatSearchLogJsonLines(entries);
@@ -229,6 +230,25 @@ function complete() {
   $("next-level").hidden = !hasNext; $("complete-dialog").showModal();
 }
 function setStatus(text) { $("status").textContent = text; }
+function dismissSolutionDecision() {
+  solutionDecision = null;
+  if ($("solution-dialog").open) $("solution-dialog").close();
+}
+function showSolutionDecision(quality, handlers) {
+  solutionDecision = handlers;
+  $("solution-dialog-kind").textContent = quality.proven
+    ? "Push-optimal solution proven"
+    : quality.improved ? "Better solution found" : "First solution found";
+  $("solution-moves").textContent = quality.moves.toLocaleString();
+  $("solution-pushes").textContent = quality.pushes.toLocaleString();
+  $("solution-total").textContent = (quality.moves + quality.pushes).toLocaleString();
+  $("solution-strategy").textContent = quality.strategy;
+  $("solution-continue").hidden = quality.canContinue === false;
+  setStatus(
+    `${quality.pushes} pushes / ${quality.moves} moves found; waiting for your choice.`,
+  );
+  if (!$("solution-dialog").open) $("solution-dialog").showModal();
+}
 function undo() {
   stop(); if (!history.length) return;
   state = history.pop(); moveHistory.pop(); moves--; solvedShown = false;
@@ -248,6 +268,7 @@ function stop(message = true) {
     {activeWorkers: workers.length, status: "cancelled", reason: "user-stop"});
   workers.forEach(worker => worker.terminate()); workers = [];
   solverAnytimeActive = false;
+  dismissSolutionDecision();
   clearSearchTelemetry();
   animation = []; clearTimeout(timer); timer = null;
   setControlsBusy(false);
@@ -430,17 +451,30 @@ $("next-level").onclick = () => {
   const keys = Object.keys(LEVELS); loadLevel(keys[keys.indexOf(levelKey) + 1]);
 };
 $("close-dialog").onclick = () => $("complete-dialog").close();
+$("solution-dialog").addEventListener("cancel", event => event.preventDefault());
+$("solution-good-enough").onclick = () => {
+  const decision = solutionDecision;
+  dismissSolutionDecision();
+  decision?.accept();
+};
+$("solution-continue").onclick = () => {
+  const decision = solutionDecision;
+  dismissSolutionDecision();
+  decision?.continueSearch();
+};
 document.querySelectorAll(".touch-button").forEach(button => {
   const move = button.dataset.move;
   button.addEventListener("pointerdown", (event) => {
     event.preventDefault();
-    if (!$("home-screen").classList.contains("hidden") || $("complete-dialog").open) return;
+    if (!$("home-screen").classList.contains("hidden") ||
+        $("complete-dialog").open || $("solution-dialog").open) return;
     stop(false); tryMove(move); $("board").focus();
   });
 });
 document.addEventListener("keydown", (event) => {
   if (!$("home-screen").classList.contains("hidden") ||
       $("complete-dialog").open ||
+      $("solution-dialog").open ||
       SokomindKeyboard.shouldIgnoreGameShortcut(event.target)) return;
   const direction = KEYS[event.key];
   if (direction) { event.preventDefault(); stop(false); tryMove(direction); }

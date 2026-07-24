@@ -308,12 +308,13 @@ Packing checkpoints retire active bridge work and extreme puzzles run only the t
 best local exact handoffs, allowing the anytime workers to begin earlier. No stored
 solution path or puzzle-specific coordinate is used.
 
-Build `2026-07-23.37` keeps the first replay-valid result visible while discovery
-and proof continue. Candidates are ordered by pushes first and moves second.
-Every accepted incumbent is replayed, persisted by puzzle-content hash, applied
-to newly launched discovery workers, and used to restart exact shards under the
-tighter strictly-better bound. Exact progress reports the best-known result,
-admissible lower bound, and remaining push gap separately.
+Build `2026-07-24.38` pauses when it finds a replay-valid solution and shows its
+moves, pushes, and combined total before changing the board. **Good enough**
+plays the incumbent; **Keep searching** starts the improvement/proof phase from
+that persisted incumbent and its tighter bound. A later improvement pauses at
+the same decision boundary. Candidates are ordered by pushes first and moves
+second, and exact progress reports the best-known result, admissible lower bound,
+and remaining push gap separately.
 
 The released Huge structural plan still produces 330 pushes / 1,306 moves after
 3,752 structural states and 19,689 generated candidates. Its bounded overlapping

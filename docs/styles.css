@@ -173,6 +173,28 @@ dialog h2 { font-size: 1.8rem; margin: .35rem 0 .55rem; }
 dialog > p:not(.eyebrow) { color: var(--muted); line-height: 1.55; }
 .celebration { color: var(--gold); font-size: 3.5rem; filter: drop-shadow(0 0 15px #edb54d66); }
 .dialog-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: .55rem; margin-top: 1.3rem; }
+.solution-quality {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(5rem, 1fr));
+  gap: .65rem;
+  margin: 1rem 0;
+}
+.solution-quality div {
+  padding: .8rem .65rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #0d131dcc;
+  text-align: center;
+}
+.solution-quality span {
+  display: block;
+  color: var(--muted);
+  font-size: .75rem;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+.solution-quality strong { display: block; margin-top: .25rem; font-size: 1.35rem; }
+.solution-strategy { margin-bottom: 0; text-align: center; }
 .home-screen {
   position: fixed; inset: 0; z-index: 20; display: grid; place-items: center;
   padding: 1.5rem; overflow: auto;

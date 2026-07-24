@@ -123,6 +123,24 @@
     </div>
   </dialog>
 
+  <dialog id="solution-dialog" aria-labelledby="solution-dialog-title">
+    <div class="celebration">&#10022;</div>
+    <p class="eyebrow" id="solution-dialog-kind">Solution found</p>
+    <h2 id="solution-dialog-title">Is this solution good enough?</h2>
+    <p>The solver found a replay-validated solution. You can play it now or keep
+      searching for a better one.</p>
+    <div class="solution-quality" aria-label="Found solution quality">
+      <div><span>Moves</span><strong id="solution-moves"></strong></div>
+      <div><span>Pushes</span><strong id="solution-pushes"></strong></div>
+      <div><span>Combined</span><strong id="solution-total"></strong></div>
+    </div>
+    <p class="solution-strategy">Found by <strong id="solution-strategy"></strong>.</p>
+    <div class="dialog-actions">
+      <button id="solution-continue">Keep searching</button>
+      <button id="solution-good-enough" class="primary">Good enough &mdash; play it</button>
+    </div>
+  </dialog>
+
   <script src="bootstrap.js"></script>
 </body>
 </html>

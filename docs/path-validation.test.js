@@ -57,6 +57,27 @@ test("web UI exposes a separate copyable search log", () => {
   assert.match(app, /SokomindKeyboard\.shouldIgnoreGameShortcut\(event\.target\)/);
 });
 
+test("solver solutions require an explicit play-or-continue decision", () => {
+  const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
+  const app = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
+  const director = fs.readFileSync(path.join(__dirname, "solver-director.js"), "utf8");
+
+  for (const id of [
+    "solution-dialog",
+    "solution-moves",
+    "solution-pushes",
+    "solution-total",
+    "solution-continue",
+    "solution-good-enough",
+  ]) {
+    assert.match(html, new RegExp(`id="${id}"`));
+  }
+  assert.match(app, /function showSolutionDecision\(/);
+  assert.match(app, /quality\.moves \+ quality\.pushes/);
+  assert.match(director, /Paused search for solution decision/);
+  assert.match(director, /runBidirectionalSolver\(purpose, analysis, \{resumeImprovement: true\}\)/);
+});
+
 test("Ultimate scheduling retires stale phases and reclaims silent workers", () => {
   const app = ["solver-director.js", "app.js"]
     .map(file => fs.readFileSync(path.join(__dirname, file), "utf8"))
