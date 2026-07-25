@@ -1,0 +1,73 @@
+# Sokomind solver architecture
+
+## General-purpose search rule
+
+Sokomind's search algorithms must derive every decision from the supplied board
+and current state. Solver production code must not contain a saved solution,
+level-specific coordinate, level-name branch, or heuristic tuned to recognize a
+particular built-in puzzle. Built-in levels are examples and regression cases,
+not privileged solver inputs.
+
+The saved Huge route is a diagnostic replay. It is useful for identifying legal
+states that pruning must preserve, measuring heuristic humps along a difficult
+solution, and establishing an incumbent for tests. The solver never loads that
+route and must remain correct when it is absent.
+
+## Runtime components
+
+- `searches/Sokomind.py` contains the Python parser and search implementations.
+- `src/app.js` owns browser UI state, rendering, controls, timing, and animation.
+- `src/game-state.js` is the independently testable browser gameplay/rules core.
+- `src/search-log.js` provides pure readable and structured telemetry formatting.
+- `src/solver-director.js` owns worker portfolios, checkpoint handoffs, lifecycle
+  accounting, replay validation, and exact-search transitions.
+- `src/solver-worker.js` is the stable Web Worker protocol entry point. It carries
+  the page's build query into each implementation module.
+- The solver engine is split into focused modules loaded by the worker:
+  `src/state.js` (identities), `src/memo.js` (caching), `src/metrics.js`
+  (performance), `src/topology.js` (floor graph), `src/board.js` (parsing),
+  `src/heuristic.js` (assignment), `src/deadlock.js` (pruning),
+  `src/analysis.js` (local search), `src/push-generation.js` (neighbors).
+  `src/solver-engine.js` is the barrel re-export for backward compatibility.
+- `src/solver-search.js` owns browser search algorithms, reconstruction,
+  resumable exact proof checkpoints, progress messages, terminal statuses, and
+  result telemetry.
+- `shared/sokomind-conformance.json` is the canonical built-in level catalog and
+  cross-runtime rule fixture.
+- `bench/` runs isolated, replay-validated search and solution checks.
+
+Ultimate's first discovery lane is a structural plan-macro beam. It derives global
+box assignments, typed doorway exports and imports, staging capacity, crossing
+conflicts, packing dependencies, and access that unsolved goals still require.
+Bounded single-box macros pursue those objectives while preserving separate
+heuristic and structural elites. These constraints guide an incomplete discovery
+lane; they do not prune the complete exact fallback.
+The lane canonicalizes all rotations and reflections before bounded search and
+maps paths and checkpoints back to the supplied orientation. Its discovery score
+uses assignment distance without constructing proof-only interaction tables;
+complete searches retain the stronger admissible interaction bound.
+
+Browser files remain classic scripts so the dependency-free GitHub Pages build and
+Web Workers need no bundler. The HTML load order supplies pure modules and policies
+before the director and UI. Worker imports load the engine before search algorithms.
+Node tests evaluate the engine and search module together in the same order.
+
+Hard pruning requires independent differential evidence. A saved solution may
+prove that one route is retained, but it cannot establish that a pruning rule is
+safe for arbitrary puzzles; generated and exhaustive state families provide that
+broader evidence.
+
+The exact kernel is additionally compared with an independent step-state 0-1 BFS.
+The gate checks optimal push counts and solvability across exhaustive tiny states
+and generated generic/typed multi-box boards, with exact options, transposition
+eviction, finite bounds, and shard partitions varied independently. Exact proof
+checkpoints contain traversal progress; guided checkpoints never count as proof.
+
+Hard pruning is listed in the executable `SokomindHardPruningRules` registry.
+Each entry declares an independent oracle family; the differential suite combines
+exhaustive 2x3 enumeration, deterministic 3x3/3x4 properties, authored strategic
+structures, and structural counterexample shrinking.
+
+Playwright serves the production `src/` scripts and worker entry in Chromium and
+WebKit. Scripted workers are used only for deterministic stale/error and Ultimate
+campaign events; ordinary hint and solve coverage uses the real Web Worker.
