@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111722">
+  <title>Sokomind</title>
+</head>
+<body>
+  <a href="#board" class="skip-link">Skip to puzzle board</a>
+  <div id="board-announce" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">S</span>
+        <div><h1>Sokomind</h1><p>Think ahead. Push with purpose.</p></div>
+      </div>
+      <div class="toolbar">
+        <button id="home-button" aria-label="Home">&#8962; Home</button>
+        <label>Solver
+          <select id="algorithm">
+            <option value="ultimate-bidirectional">Ultimate Bidirectional</option>
+            <option value="ultimate">Ultimate Search</option>
+            <option value="portfolio">Fast Portfolio</option>
+            <option value="push-beam">Push Beam</option>
+            <option value="weighted-push-astar">Fast Push A*</option>
+            <option value="push-astar">Push A*</option>
+            <option value="push-greedy">Push Greedy</option>
+            <option value="astar">A*</option>
+            <option value="greedy">Greedy</option>
+            <option value="bfs">BFS</option>
+            <option value="dfs">DFS</option>
+          </select>
+        </label>
+        <button id="solve" class="primary">&#9654; Solve</button>
+        <button id="hint">&#10022; Hint</button>
+        <button id="stop">&#9632; Stop</button>
+        <button id="clear-saved-search" title="Discard resumable exact-search proof state">Clear Saved Search</button>
+        <span class="divider"></span>
+        <button id="undo">&#8630; Undo</button>
+        <button id="reset">&#8635; Reset</button>
+      </div>
+    </header>
+
+    <main>
+      <aside class="levels-panel">
+        <div class="section-heading"><span>Levels</span><small id="level-count"></small></div>
+        <div id="level-list" class="level-list"></div>
+      </aside>
+
+      <section class="game-panel">
+        <div class="game-heading">
+          <div><span class="eyebrow">Now playing</span><h2 id="level-title"></h2></div>
+          <div class="stats">
+            <div class="move-pill"><span>Time</span><strong id="timer">00:00</strong></div>
+            <div class="move-pill"><span>Moves</span><strong id="move-count">0</strong></div>
+            <div class="move-pill"><span>Optimal moves</span><strong id="optimal-move-count">&mdash;</strong></div>
+            <div class="move-pill"><span>Pushes</span><strong id="push-count">0</strong></div>
+          </div>
+        </div>
+        <div class="touch-controls" aria-label="Mobile movement controls">
+          <button class="touch-button up" data-move="Up" aria-label="Move up">&#8593;</button>
+          <button class="touch-button left" data-move="Left" aria-label="Move left">&#8592;</button>
+          <button class="touch-button down" data-move="Down" aria-label="Move down">&#8595;</button>
+          <button class="touch-button right" data-move="Right" aria-label="Move right">&#8594;</button>
+        </div>
+        <div id="board-wrap" class="board-wrap">
+          <div id="board" class="board" role="grid" tabindex="0" aria-label="Sokomind puzzle board"></div>
+        </div>
+        <footer>
+          <p id="status" aria-live="polite">Use arrow keys or WASD to play.</p>
+          <p class="key-help"><kbd>&uarr;</kbd><kbd>&darr;</kbd><kbd>&larr;</kbd><kbd>&rarr;</kbd> or <kbd>WASD</kbd></p>
+        </footer>
+        <details class="move-history">
+          <summary><span>Move history</span><strong id="move-history-count">0</strong></summary>
+          <div class="move-history-body">
+            <textarea id="move-history-text" aria-label="Move history" readonly></textarea>
+            <button id="copy-moves" title="Copy move history" aria-label="Copy move history">&#10697;</button>
+          </div>
+        </details>
+        <details class="move-history search-history" open>
+          <summary><span>Search log</span><strong id="search-log-count">0</strong></summary>
+          <div class="move-history-body">
+            <textarea id="search-log-text" aria-label="Search log" readonly></textarea>
+            <div class="search-log-actions">
+              <button id="copy-search-log" title="Copy readable search log" aria-label="Copy readable search log">&#10697;</button>
+              <button id="copy-search-json" title="Copy structured JSON Lines search log" aria-label="Copy structured JSON Lines search log">{ }</button>
+            </div>
+          </div>
+        </details>
+      </section>
+    </main>
+  </div>
+
+  <section id="home-screen" class="home-screen">
+    <div class="home-card">
+      <span class="home-mark">S</span>
+      <p class="eyebrow">Welcome to</p>
+      <h2>Sokomind</h2>
+      <p class="tagline">Think ahead. Push with purpose.</p>
+      <p class="solver-build-badge" title="Solver build currently loaded by this page">
+        Solver build <strong id="solver-build"></strong>
+      </p>
+      <div class="how-to">
+        <h3>How to play</h3>
+        <p>Push every box onto its matching goal. Boxes can be pushed, but never pulled, so plan your route carefully.</p>
+        <div class="rules">
+          <span><b>X</b> Generic box</span><span><b>S</b> Generic goal</span>
+          <span><b>A</b> Lettered box</span><span><b>a</b> Matching goal</span>
+        </div>
+        <p><kbd>&uarr;</kbd><kbd>&darr;</kbd><kbd>&larr;</kbd><kbd>&rarr;</kbd> or <kbd>WASD</kbd> to move &middot; <kbd>U</kbd> undo &middot; <kbd>R</kbd> reset</p>
+      </div>
+      <button id="start-game" class="primary start-button">Play Sokomind &rarr;</button>
+    </div>
+  </section>
+
+  <dialog id="complete-dialog">
+    <div class="celebration">&#9733;</div>
+    <p class="eyebrow">Puzzle complete</p>
+    <h2>Congratulations!</h2>
+    <p>You passed <strong id="complete-level"></strong> in
+      <strong id="complete-moves"></strong> moves.</p>
+    <div class="dialog-actions">
+      <button id="replay">Replay</button>
+      <button id="next-level" class="primary">Next level &rarr;</button>
+      <button id="close-dialog">Keep looking</button>
+    </div>
+  </dialog>
+
+  <dialog id="solution-dialog" aria-labelledby="solution-dialog-title" aria-live="assertive">
+    <div class="celebration">&#10022;</div>
+    <p class="eyebrow" id="solution-dialog-kind">Solution found</p>
+    <h2 id="solution-dialog-title">Is this solution good enough?</h2>
+    <p>The solver found a replay-validated solution. You can play it now or keep
+      searching for a better one.</p>
+    <div class="solution-quality" aria-label="Found solution quality">
+      <div><span>Moves</span><strong id="solution-moves"></strong></div>
+      <div><span>Pushes</span><strong id="solution-pushes"></strong></div>
+      <div><span>Combined</span><strong id="solution-total"></strong></div>
+    </div>
+    <p class="solution-strategy">Found by <strong id="solution-strategy"></strong>.</p>
+    <div class="dialog-actions">
+      <button id="solution-continue">Keep searching</button>
+      <button id="solution-good-enough" class="primary">Good enough &mdash; play it</button>
+    </div>
+  </dialog>
+
+  <script src="bootstrap.js"></script>
+</body>
+</html>
