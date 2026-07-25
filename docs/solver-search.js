@@ -3283,6 +3283,106 @@ function serializedSearchState(state, rows) {
   };
 }
 
+function solutionPushChains(payload, path, board) {
+  let state = initialReplayState(payload);
+  const chains = state.boxes.map(() => []);
+  for (const move of path) {
+    const next = neighbors(state, board, false)
+      .find(candidate => candidate.move === move);
+    if (!next) return null;
+    if (next.boxes !== state.boxes) {
+      const boxIndex = state.boxes.findIndex((box, index) =>
+        box[0] !== next.boxes[index][0] || box[1] !== next.boxes[index][1]);
+      if (boxIndex < 0) return null;
+      const [fromY, fromX, label] = state.boxes[boxIndex];
+      const [toY, toX] = next.boxes[boxIndex];
+      chains[boxIndex].push({
+        boxIndex,
+        label,
+        from: pkey(fromY, fromX),
+        to: pkey(toY, toX),
+        move,
+      });
+    }
+    state = {robot: next.robot, boxes: next.boxes, cost: state.cost + 1};
+    if (goal(state.boxes, board.goals)) break;
+  }
+  return chains;
+}
+
+function pushPermutationSearch(payload, path, board, maxVisited = 10000) {
+  const chains = solutionPushChains(payload, path, board);
+  if (!chains) return {path: null, visited: 0};
+  const totalPushes = chains.reduce((sum, chain) => sum + chain.length, 0);
+  const initial = {
+    ...initialReplayState(payload),
+    progress: new Uint16Array(chains.length),
+    pushes: 0,
+    moves: 0,
+    node: null,
+  };
+  const frontier = new Heap(), bestCost = new Map();
+  let order = 0, visited = 0, generated = 0, peakFrontier = 1;
+  const upperBound = path.length;
+  const identity = state =>
+    `${exactPushIdentity(state, board)}|${state.progress.join(".")}`;
+  const initialIdentity = identity(initial);
+  bestCost.set(initialIdentity, 0);
+  frontier.push([totalPushes, order++, initial]);
+
+  while (frontier.length && visited < maxVisited) {
+    const state = frontier.pop()[2];
+    const stateIdentity = identity(state);
+    if (state.moves !== bestCost.get(stateIdentity)) continue;
+    visited++;
+    if (state.pushes === totalPushes) {
+      const candidate = reconstructNodePath(state.node);
+      return candidate.length < upperBound
+        ? {path: candidate, visited, generated, peakFrontier}
+        : {path: null, visited, generated, peakFrontier};
+    }
+    const reachable = reachablePaths(state, board);
+    const occupied = denseBoxLayout(state.boxes, board).indexByCell;
+    for (let boxIndex = 0; boxIndex < chains.length; boxIndex++) {
+      const action = chains[boxIndex][state.progress[boxIndex]];
+      if (!action) continue;
+      const [boxY, boxX, label] = state.boxes[boxIndex];
+      if (label !== action.label || pkey(boxY, boxX) !== action.from) continue;
+      const [dy, dx] = DIRS[action.move];
+      const destinationId = board.dense.idByKey.get(action.to);
+      const support = pkey(boxY - dy, boxX - dx);
+      if (destinationId === undefined || occupied[destinationId] >= 0 ||
+          !reachable.has(support)) continue;
+      const walking = reachable.get(support);
+      const segment = [...walking, action.move];
+      const next = replaySearchPath(state, board, segment);
+      if (!next || pkey(next.boxes[boxIndex][0], next.boxes[boxIndex][1]) !== action.to) {
+        continue;
+      }
+      const moves = state.moves + segment.length;
+      if (moves >= upperBound) continue;
+      const progress = state.progress.slice();
+      progress[boxIndex]++;
+      const child = {
+        robot: next.robot,
+        boxes: next.boxes,
+        progress,
+        pushes: state.pushes + 1,
+        moves,
+        node: {parent: state.node, segment},
+      };
+      const childIdentity = identity(child);
+      if ((bestCost.get(childIdentity) ?? Infinity) <= moves) continue;
+      bestCost.set(childIdentity, moves);
+      const remaining = totalPushes - child.pushes;
+      frontier.push([moves + remaining, order++, child]);
+      generated++;
+    }
+    peakFrontier = Math.max(peakFrontier, frontier.length);
+  }
+  return {path: null, visited, generated, peakFrontier, cutoff: visited >= maxVisited};
+}
+
 function solutionWindowRewriteSearch(payload) {
   const board = parse(payload.state);
   let path = [...(payload.solutionPath || [])];
@@ -3299,10 +3399,63 @@ function solutionWindowRewriteSearch(payload) {
   }
   path = canonical;
   details = replaySolutionDetails(payload, path, board);
-  const windowSizes = payload.windowPushes || [8, 16, 32];
   const maximumVisited = payload.maxVisited || 300000;
+  const permutationBudget = Math.min(
+    payload.permutationVisited || 0,
+    maximumVisited,
+  );
+  const permutationSizes = payload.permutationWindowPushes || [8, 16, 32];
+  const perPermutationWindow = payload.perPermutationWindowVisited || 1000;
+  let permutationVisited = 0, permutationGenerated = 0;
+  let permutationImprovements = 0, permutationWindows = 0;
+  for (const windowPushes of permutationSizes) {
+    const stride = Math.max(1, Math.floor(windowPushes / 2));
+    for (let startPush = 0;
+      startPush + windowPushes <= details.pushes &&
+        permutationVisited < permutationBudget;
+      startPush += stride) {
+      const start = details.boundaries[startPush];
+      const target = details.boundaries[startPush + windowPushes];
+      if (!start || !target) continue;
+      const segment = path.slice(start.moveIndex, target.moveIndex);
+      const budget = Math.min(
+        perPermutationWindow,
+        permutationBudget - permutationVisited,
+      );
+      const permutation = pushPermutationSearch({
+        ...payload,
+        state: serializedSearchState(start.state, board.rows),
+      }, segment, board, budget);
+      permutationVisited += permutation.visited || 0;
+      permutationGenerated += permutation.generated || 0;
+      permutationWindows++;
+      if (!permutation.path) continue;
+      const rewrittenEnd = replaySearchPath(start.state, board, permutation.path);
+      const walking = rewrittenEnd
+        ? reachablePaths(rewrittenEnd, board)
+          .get(pkey(target.state.robot[0], target.state.robot[1]))
+        : null;
+      if (!walking) continue;
+      const candidate = [
+        ...path.slice(0, start.moveIndex),
+        ...permutation.path,
+        ...walking,
+        ...path.slice(target.moveIndex),
+      ];
+      const candidateDetails = replaySolutionDetails(payload, candidate, board);
+      if (candidateDetails &&
+          goal(candidateDetails.state.boxes, board.goals) &&
+          candidateDetails.pushes === details.pushes &&
+          candidateDetails.moves < details.moves) {
+        path = candidate;
+        details = candidateDetails;
+        permutationImprovements++;
+      }
+    }
+  }
+  const windowSizes = payload.windowPushes || [8, 16, 32];
   const perWindowVisited = payload.windowVisited || 20000;
-  let visited = 0, windows = 0;
+  let visited = permutationVisited, windows = 0;
   let improvements = details.moves < initialQuality.moves ? 1 : 0;
 
   for (const windowPushes of windowSizes) {
@@ -3431,6 +3584,10 @@ function solutionWindowRewriteSearch(payload) {
     windows,
     improvements,
     moveVisited,
+    permutationVisited,
+    permutationGenerated,
+    permutationImprovements,
+    permutationWindows,
     initialPushes: initialQuality.pushes,
     initialMoves: initialQuality.moves,
     bestPushes: details.pushes,

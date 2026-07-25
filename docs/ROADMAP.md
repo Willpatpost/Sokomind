@@ -13,7 +13,7 @@ to production search.
 Current reference point
 -----------------------
 
-Build 2026-07-24.45 canonicalizes every replay-valid result before presenting it:
+Build 2026-07-24.46 canonicalizes every replay-valid result before presenting it:
 exact repeated-state cycles are erased, walking between the retained pushes is
 replaced by shortest legal walking, and motion after the solved state is removed.
 On the reviewed base, mirrored, and rotated Huge runs this reduces build `.42`'s
@@ -29,7 +29,11 @@ bytes, with a roughly 51 MB isolated-process peak. A 6,000-state Huge diagnostic
 now uses about 104 MB instead of roughly 1.5 GB, but reaches only a 24-push
 checkpoint; FESS therefore remains disabled on Huge because of search progress
 and CPU contention rather than memory. The diagnostic 640-move solution remains
-benchmark evidence, not solver input or proof of optimality.
+benchmark evidence, not solver input or proof of optimality. A bounded
+push-permutation optimizer now reschedules independent per-box push chains after
+the user requests refinement. It reduces the reviewed 1,003-move structural
+incumbent to 917 moves and improves the 640-move diagnostic incumbent to 618
+moves when combined with exact windows.
 
 Roadmap rules
 -------------
@@ -190,7 +194,8 @@ find better solutions and constrains complete search.
 
 5. Rewrite completed solutions with exact local windows
    Status: Complete; move-first canonicalization and bounded extra-push windows
-   added in build 2026-07-24.43.
+   added in build 2026-07-24.43, with push-permutation windows added in build
+   2026-07-24.46.
 
    Plan:
    - Partition a solution at stable structural milestones such as completed
@@ -203,6 +208,9 @@ find better solutions and constrains complete search.
    - Use a separate exact-robot move-cost lane for high-overhead windows; admit a
      small, explicit number of temporary pushes only when the stitched path is
      strictly shorter.
+   - Preserve each box's push chain while using bounded move-cost A* to reorder
+     independent chains, inserting shortest robot walks and replay-validating the
+     complete replacement.
    - Expand window sizes and state budgets across requested refinement rounds,
      including a full-route push window from round three onward.
    - Reject a replacement unless the entire stitched path replays to the same or

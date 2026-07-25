@@ -2574,6 +2574,43 @@ test("solution refinement uses a bounded extra-push lane when it saves moves", (
   assert.ok(result.moveVisited < 20);
 });
 
+test("solution refinement permutes independent box chains to reduce walking", () => {
+  const worker = loadWorker();
+  const state = stateFromRows([
+    "OOOOOOOOOOO",
+    "O R       O",
+    "O A     B O",
+    "O         O",
+    "O a     b O",
+    "OOOOOOOOOOO",
+  ]);
+  const incumbent = [
+    "Down", "Up",
+    "Right", "Right", "Right", "Right", "Right", "Right",
+    "Down",
+    "Left", "Left", "Left", "Left", "Left", "Left", "Down",
+    "Up",
+    "Right", "Right", "Right", "Right", "Right", "Right", "Down",
+  ];
+  const result = worker.search({
+    algorithm: "solution-window-rewrite",
+    state,
+    solutionPath: incumbent,
+    permutationVisited: 1000,
+    permutationWindowPushes: [4],
+    windowPushes: [],
+    moveWindowVisited: 0,
+    maxVisited: 1000,
+  });
+
+  assert.equal(result.status, "solved");
+  assert.equal(result.initialMoves, 24);
+  assert.equal(result.bestMoves, 12);
+  assert.equal(result.bestPushes, 4);
+  assert.equal(result.permutationImprovements, 1);
+  assert.ok(result.permutationVisited < 100);
+});
+
 test("exact solution windows remove a replay-valid walking detour", () => {
   const worker = loadWorker();
   const state = stateFromRows([
@@ -2742,10 +2779,12 @@ test("exact solution windows improve diagnostic Huge moves", () => {
     windowVisited: 8000,
     maxVisited: 120000,
     frontierLimit: 6000,
+    permutationVisited: 5000,
   });
 
   assert.equal(result.status, "solved");
-  assert.ok(result.bestMoves < result.initialMoves);
+  assert.equal(result.bestMoves, 618);
   assert.ok(result.bestPushes <= result.initialPushes);
-  assert.ok(result.visited <= 5000);
+  assert.ok(result.permutationImprovements > 0);
+  assert.ok(result.visited <= 10000);
 });

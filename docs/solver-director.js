@@ -796,6 +796,9 @@ function runBidirectionalSolver(purpose, analysis, options = {}) {
         moveWindowAttempts: refinementRound >= 3 ? 8 : 4,
         moveWindowPushes: refinementRound >= 3 ? [1, 2, 4, 8] : [1, 2, 4],
         moveWindowExtraPushes: 4,
+        permutationVisited: 20000,
+        permutationWindowPushes: [8],
+        perPermutationWindowVisited: 1000,
         queuePriority: -10,
       }], {priority: -10});
     }

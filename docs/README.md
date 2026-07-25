@@ -336,7 +336,7 @@ Packing checkpoints retire active bridge work and extreme puzzles run only the t
 best local exact handoffs, allowing the anytime workers to begin earlier. No stored
 solution path or puzzle-specific coordinate is used.
 
-Build `2026-07-24.45` pauses when it finds a replay-valid solution and shows its
+Build `2026-07-24.46` pauses when it finds a replay-valid solution and shows its
 moves, pushes, and combined total before changing the board. **Good enough**
 plays the incumbent; **Keep searching** starts the improvement/proof phase from
 that exact latest incumbent. Solutions are ranked strictly by move count; pushes
@@ -363,7 +363,7 @@ seconds and the 955-move improvement appeared 30 seconds after the initial
 request. These are regression measurements, not universal guarantees or
 optimality claims.
 
-Before any solution reaches the decision popup, build `.45` erases chronological
+Before any solution reaches the decision popup, build `.46` erases chronological
 cycles that return to the exact same robot-and-box state, replaces every walking
 span between retained pushes with a shortest legal route, and removes motion
 after the solved state. The reviewed base, mirrored, and rotated Huge structural
@@ -373,6 +373,16 @@ round two onward, a separate move-cost A* lane examines
 only a handful of high-overhead local windows under an explicit state budget. Its
 identity includes the exact robot square, and it may use at most four additional
 temporary pushes when the exact same endpoint can be reached in fewer moves.
+
+Build `.46` also rewrites the incumbent through bounded push-permutation windows.
+Each box retains its original push chain, but independent chains may be
+interleaved differently. A move-cost A* scheduler chooses the next currently
+legal push, inserts the shortest robot walk, and accepts a window only after the
+whole solution replays with fewer moves. This reduces the reviewed 1,003-move
+Huge structural incumbent to 917 moves in a 20,000-state refinement pass. On the
+stronger 640-move diagnostic incumbent, permutation plus exact windows reaches
+618 moves instead of 624. The first-solution search and decision latency are
+unchanged because permutation runs only after **Keep searching**.
 
 Guided beam and bounded DFS workers publish progress on both state-count and
 elapsed-time intervals, so expensive states cannot make a productive worker appear
