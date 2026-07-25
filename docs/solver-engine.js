@@ -184,6 +184,7 @@ function exactPushKey(state, board = null) {
 const HEURISTIC_MEMO_LIMIT = 20000;
 const DEADLOCK_MEMO_LIMIT = 10000;
 const PUSH_TRANSITION_MEMO_LIMIT = 2000;
+const REACHABILITY_MEMO_LIMIT = 512;
 const PATTERN_DEADLOCK_MEMO_LIMIT = 10000;
 const PATTERN_EXACT_STATE_LIMIT = 512;
 const PATTERN_FLOOR_LIMIT = 18;
@@ -383,6 +384,7 @@ function createPerformanceMetrics() {
     goalTableHits: 0,
     goalTableMs: 0,
     reachabilityCalls: 0,
+    reachabilityCacheHits: 0,
     reachabilityCells: 0,
     reachabilityMs: 0,
     pushNeighborCalls: 0,
@@ -827,6 +829,7 @@ function hydratePreparedBoard(data, seed, metrics) {
     shortestCorridorMemo: new Map(),
     localCorralMemo: new Map(),
     doorwayFlowMemo: new Map(),
+    reachabilityMemo: new Map(),
     denseBoxMemo: new WeakMap(),
     pushTransitionMemo: new Map(),
     boxSignatureMemo: new WeakMap(),
@@ -929,6 +932,7 @@ function parse(data) {
     shortestCorridorMemo: new Map(),
     localCorralMemo: new Map(),
     doorwayFlowMemo: new Map(),
+    reachabilityMemo: new Map(),
     denseBoxMemo: new WeakMap(),
     pushTransitionMemo: new Map(),
     boxSignatureMemo: new WeakMap(),
@@ -2792,8 +2796,19 @@ function denseOccupancy(state, board) {
 function reachablePaths(state, board) {
   const started = now();
   board.metrics.reachabilityCalls++;
-  const {dense} = board, occupied = denseOccupancy(state, board);
+  const {dense} = board, layout = denseBoxLayout(state.boxes, board);
+  const occupied = layout.indexByCell;
   const start = dense.idByKey.get(pkey(state.robot[0], state.robot[1]));
+  // Reachability geometry is permutation-invariant, but occupied cell values are
+  // box indices consumed by push generation. Keep the order-sensitive layout key.
+  const cacheKey = `${start}|${layout.orderedSignature}`;
+  const memoLimit = board.reachabilityMemoLimit || 0;
+  const cached = memoLimit ? board.reachabilityMemo.get(cacheKey) : null;
+  if (cached) {
+    board.metrics.reachabilityCacheHits++;
+    board.metrics.reachabilityMs += now() - started;
+    return cached;
+  }
   const parents = new Int32Array(dense.keys.length), parentMoves = new Int8Array(dense.keys.length);
   parents.fill(-2);
   parents[start] = -1;
@@ -2822,7 +2837,7 @@ function reachablePaths(state, board) {
   };
   board.metrics.reachabilityCells += tail;
   board.metrics.reachabilityMs += now() - started;
-  return {
+  const result = {
     has: position => {
       const id = dense.idByKey.get(position);
       return id !== undefined && parents[id] !== -2;
@@ -2838,6 +2853,9 @@ function reachablePaths(state, board) {
     board,
     regionId,
   };
+  return memoLimit
+    ? memoizeBounded(board.reachabilityMemo, cacheKey, result, memoLimit)
+    : result;
 }
 
 function minimumBlockerRoutes(reachable, board) {
@@ -3774,8 +3792,16 @@ function exactLocalPushSearch({domain, boxes, robot, isGoal, gate, maxStates = 1
 }
 
 function localDomainGloballyClosed(domain, board) {
-  return [...domain].every(position =>
-    floorNeighbors(position, board.floor).every(neighbor => domain.has(neighbor)));
+  const {dense} = board;
+  for (const position of domain) {
+    const cell = dense.idByKey.get(position);
+    if (cell === undefined) return false;
+    for (let direction = 0; direction < DIRECTION_ENTRIES.length; direction++) {
+      const neighbor = dense.neighbors[cell * DIRECTION_ENTRIES.length + direction];
+      if (neighbor >= 0 && !domain.has(dense.keys[neighbor])) return false;
+    }
+  }
+  return true;
 }
 
 function cacheCompleteLocalAnalysis(memo, key, result, limit) {
@@ -3986,18 +4012,32 @@ function localRoomOrderingDelta(analyses, next) {
 }
 
 function inaccessibleFloorComponents(reachable, board) {
-  const inaccessible = new Set([...board.floor].filter(position => !reachable.has(position)));
+  const {dense} = board;
+  board.corralTraversalVisited ??= new Uint32Array(dense.keys.length);
+  board.corralTraversalQueue ??= new Int32Array(dense.keys.length);
+  board.corralTraversalEpoch = (board.corralTraversalEpoch || 0) + 1;
+  if (board.corralTraversalEpoch === 0xffffffff) {
+    board.corralTraversalVisited.fill(0);
+    board.corralTraversalEpoch = 1;
+  }
+  const visited = board.corralTraversalVisited;
+  const queue = board.corralTraversalQueue;
+  const epoch = board.corralTraversalEpoch;
   const components = [];
-  while (inaccessible.size) {
-    const start = inaccessible.values().next().value;
-    const component = new Set([start]), queue = [start];
-    inaccessible.delete(start);
-    for (let head = 0; head < queue.length; head++) {
-      for (const next of floorNeighbors(queue[head], board.floor)) {
-        if (!inaccessible.has(next)) continue;
-        inaccessible.delete(next);
-        component.add(next);
-        queue.push(next);
+  for (let start = 0; start < dense.keys.length; start++) {
+    if (visited[start] === epoch || reachable.hasId(start)) continue;
+    const component = new Set();
+    let head = 0, tail = 1;
+    queue[0] = start;
+    visited[start] = epoch;
+    while (head < tail) {
+      const current = queue[head++];
+      component.add(dense.keys[current]);
+      for (let direction = 0; direction < DIRECTION_ENTRIES.length; direction++) {
+        const next = dense.neighbors[current * DIRECTION_ENTRIES.length + direction];
+        if (next < 0 || visited[next] === epoch || reachable.hasId(next)) continue;
+        visited[next] = epoch;
+        queue[tail++] = next;
       }
     }
     components.push(component);
@@ -4120,22 +4160,30 @@ function exactLocalCorralAnalyses(state, board, reachable = reachablePaths(state
 }
 
 function createsSealedCorralDeadlock(state, board, reachable) {
+  const {dense} = board;
+  const layout = denseBoxLayout(state.boxes, board);
   const occupied = new Map(state.boxes.map(([y, x, label]) => [pkey(y, x), label]));
   for (const component of inaccessibleFloorComponents(reachable, board)) {
     const componentBoxes = [...component].filter(position => occupied.has(position));
     if (!componentBoxes.some(position => board.goals.get(position) !== occupied.get(position))) continue;
     const canOpen = componentBoxes.some(position => {
-      const [y, x] = position.split(",").map(Number);
-      return Object.values(DIRS).some(([dy, dx]) => {
-        const support = pkey(y - dy, x - dx), destination = pkey(y + dy, x + dx);
-        return reachable.has(support) && board.floor.has(destination) && !occupied.has(destination);
+      const box = dense.idByKey.get(position);
+      return DIRECTION_ENTRIES.some((_, direction) => {
+        const support = dense.neighbors[
+          box * DIRECTION_ENTRIES.length + OPPOSITE_DIRECTION_INDEX[direction]
+        ];
+        const destination = dense.neighbors[box * DIRECTION_ENTRIES.length + direction];
+        return reachable.hasId(support) && destination >= 0 &&
+          layout.indexByCell[destination] < 0;
       });
     });
     if (!canOpen) return true;
     const boundary = new Set();
     for (const position of component) {
-      for (const neighbor of floorNeighbors(position, board.floor)) {
-        if (reachable.has(neighbor)) boundary.add(neighbor);
+      const cell = dense.idByKey.get(position);
+      for (let direction = 0; direction < DIRECTION_ENTRIES.length; direction++) {
+        const neighbor = dense.neighbors[cell * DIRECTION_ENTRIES.length + direction];
+        if (reachable.hasId(neighbor)) boundary.add(dense.keys[neighbor]);
       }
     }
     const domain = new Set([...component, ...boundary]);
@@ -4319,6 +4367,32 @@ function recordMacroDiscoveryRejection(metrics, reason) {
   if (reason === "goal-access") metrics.macroGoalAccessRejections++;
 }
 
+function macroPathRoot(path) {
+  return {parent: null, segment: path, length: path.length};
+}
+
+function extendMacroPath(state, segment) {
+  const parent = state.macroPath || macroPathRoot(state.path);
+  return {parent, segment, length: parent.length + segment.length};
+}
+
+function materializeMacroPath(state) {
+  if (!state.macroPath) return state;
+  let path = state.path;
+  if (!path) {
+    const segments = [];
+    for (let node = state.macroPath; node; node = node.parent) {
+      if (node.segment.length) segments.push(node.segment);
+    }
+    path = [];
+    for (let index = segments.length - 1; index >= 0; index--) {
+      path.push(...segments[index]);
+    }
+  }
+  const {macroPath: _macroPath, ...result} = state;
+  return {...result, path};
+}
+
 function expandPushSequences(
   first,
   board,
@@ -4328,7 +4402,7 @@ function expandPushSequences(
   options = {},
 ) {
   const metrics = activePerformance;
-  const initial = {...first, pushes: 1};
+  const initial = {...first, pushes: 1, macroPath: macroPathRoot(first.path)};
   const queue = [initial], endpoints = [];
   const seen = new Set([exactPushKey(initial, board)]);
   let head = 0;
@@ -4360,7 +4434,7 @@ function expandPushSequences(
       const sequence = {
         robot: next.robot,
         boxes: next.boxes,
-        path: [...current.path, ...next.path],
+        macroPath: extendMacroPath(current, next.path),
         pushes: current.pushes + 1,
         pushClass: `${first.pushClass}:${current.pushes + 1}`,
         pushedFrom: next.pushedFrom,
@@ -4384,7 +4458,8 @@ function expandPushSequences(
   endpoints.sort((left, right) =>
     Number(Boolean(right.macroDecision)) - Number(Boolean(left.macroDecision)) ||
     right.pushes - left.pushes ||
-    left.path.length - right.path.length);
+    (left.path?.length ?? left.macroPath.length) -
+      (right.path?.length ?? right.macroPath.length));
   const selected = [], destinations = new Set();
   const viableEndpoint = endpoint => {
     if (!(endpoint.targetDistance > 0)) return true;
@@ -4415,8 +4490,12 @@ function expandPushSequences(
     selected.push(endpoint);
   }
   if (metrics) metrics.macroEndpointsRetained += selected.length;
-  return [initial, ...selected.filter(endpoint =>
-    exactPushKey(endpoint, board) !== exactPushKey(initial, board))];
+  return [
+    materializeMacroPath(initial),
+    ...selected
+      .filter(endpoint => exactPushKey(endpoint, board) !== exactPushKey(initial, board))
+      .map(materializeMacroPath),
+  ];
 }
 
 function expandTargetedPushSequence(
@@ -4459,7 +4538,12 @@ function expandTargetedPushSequence(
     return Infinity;
   };
   let macroOrder = 0;
-  const initial = {...first, pushes: 1, macroOrder: macroOrder++};
+  const initial = {
+    ...first,
+    pushes: 1,
+    macroOrder: macroOrder++,
+    macroPath: macroPathRoot(first.path),
+  };
   initial.targetDistance = distance(initial);
   const open = new Heap(), endpoints = [], completedTargets = new Map();
   const openPriority = sequence => {
@@ -4511,7 +4595,7 @@ function expandTargetedPushSequence(
       const sequence = {
         robot: next.robot,
         boxes: next.boxes,
-        path: [...current.path, ...next.path],
+        macroPath: extendMacroPath(current, next.path),
         pushes: current.pushes + 1,
         pushClass: `${first.pushClass}:target:${current.pushes + 1}`,
         pushedFrom: next.pushedFrom,
@@ -4558,8 +4642,12 @@ function expandTargetedPushSequence(
     selected.push(endpoint);
   }
   if (metrics) metrics.macroEndpointsRetained += selected.length;
-  return [initial, ...selected.filter(endpoint =>
-    exactPushKey(endpoint, board) !== exactPushKey(initial, board))];
+  return [
+    materializeMacroPath(initial),
+    ...selected
+      .filter(endpoint => exactPushKey(endpoint, board) !== exactPushKey(initial, board))
+      .map(materializeMacroPath),
+  ];
 }
 
 function expandStraightPushes(first, board, maxPushes = 8, options = {}) {

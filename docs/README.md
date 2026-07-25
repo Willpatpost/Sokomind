@@ -336,7 +336,7 @@ Packing checkpoints retire active bridge work and extreme puzzles run only the t
 best local exact handoffs, allowing the anytime workers to begin earlier. No stored
 solution path or puzzle-specific coordinate is used.
 
-Build `2026-07-24.46` pauses when it finds a replay-valid solution and shows its
+Build `2026-07-24.47` pauses when it finds a replay-valid solution and shows its
 moves, pushes, and combined total before changing the board. **Good enough**
 plays the incumbent; **Keep searching** starts the improvement/proof phase from
 that exact latest incumbent. Solutions are ranked strictly by move count; pushes
@@ -351,17 +351,15 @@ Ultra Tiny 1, Tiny 20, Medium 34, and Large 148; Huge is currently unknown.
 The structural planner still compresses walking into push-state transitions
 because that makes the search tractable, but it carries cumulative move cost,
 uses a small move-cost signal during structural ranking, compares multiple solved
-successors, and chooses the fewest-move solution candidate. Build `.42` reduces
-the reliable targeted-macro budget from 96 to 64 states, narrows the reviewed
-beam from 40 to 32, caches ordered transition identities, and uses linear 0-1
-blocker routing. On the reviewed Huge configuration, all three orientations
-produce a replay-valid 1,047-move / 310-push first solution in 31-33 seconds,
-down from 1,216 moves / 324 pushes in 80-83 seconds. The first bounded rewrite
-then reaches 955 moves / 294 pushes in about nine seconds and 4,821 local states.
-In an end-to-end production Chromium run, the first decision appeared in 24
-seconds and the 955-move improvement appeared 30 seconds after the initial
-request. These are regression measurements, not universal guarantees or
-optimality claims.
+successors, and chooses the fewest-move solution candidate. Build `.47` moves
+inaccessible-region, corral-boundary, and local-domain traversal onto the compiled
+dense graph; reuses exact order-sensitive reachability results in a bounded cache;
+and stores macro paths as shared parent segments until an endpoint survives.
+The reviewed Huge base, mirrored, and rotated runs retain the identical
+1,780 visited / 13,279 generated search and replay-valid 1,003-move / 306-push
+solution while completing in 16.0-16.6 seconds in the isolated Node harness,
+down from the previous reviewed 35-47 second range. These are regression
+measurements, not universal guarantees or optimality claims.
 
 Before any solution reaches the decision popup, build `.46` erases chronological
 cycles that return to the exact same robot-and-box state, replaces every walking

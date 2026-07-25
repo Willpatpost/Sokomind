@@ -588,6 +588,7 @@ test("dense board reachability preserves reference regions and exact walking pat
     "OSCXDSO", "OcS SdO", "OOOOOOO",
   ]);
   const board = worker.parse(parsed);
+  board.reachabilityMemoLimit = 8;
   let state = {
     robot: parsed.robot,
     boxes: parsed.boxes.map(([position, label]) => [...position.split(",").map(Number), label]),
@@ -602,12 +603,38 @@ test("dense board reachability preserves reference regions and exact walking pat
 
   for (const candidate of states) {
     const dense = worker.reachablePaths(candidate, board);
+    assert.equal(worker.reachablePaths(candidate, board), dense);
     const reference = worker.reachablePathsReference(candidate, board);
     assert.deepEqual([...dense.keys()].sort(), [...reference.keys()].sort());
     for (const position of reference.keys()) {
       assert.deepEqual(dense.get(position), reference.get(position), `path mismatch at ${position}`);
     }
+    const remaining = new Set([...board.floor].filter(position => !reference.has(position)));
+    const referenceComponents = [];
+    while (remaining.size) {
+      const start = remaining.values().next().value;
+      const component = new Set([start]), queue = [start];
+      remaining.delete(start);
+      for (let head = 0; head < queue.length; head++) {
+        const [y, x] = queue[head].split(",").map(Number);
+        for (const [dy, dx] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+          const next = `${y + dy},${x + dx}`;
+          if (!remaining.has(next)) continue;
+          remaining.delete(next);
+          component.add(next);
+          queue.push(next);
+        }
+      }
+      referenceComponents.push([...component].sort().join(";"));
+    }
+    assert.deepEqual(
+      [...worker.inaccessibleFloorComponents(dense, board)]
+        .map(component => [...component].sort().join(";"))
+        .sort(),
+      referenceComponents.sort(),
+    );
   }
+  assert.ok(board.metrics.reachabilityCacheHits >= states.length);
 
   assert.equal(board.dense.keys.length, board.floor.size);
   for (const [position, id] of board.dense.idByKey) {
@@ -2002,6 +2029,7 @@ test("box-run macros preserve a replayable sequence of pushes", () => {
   assert.ok(solved);
   assert.equal(solved.pushes, 2);
   assert.deepEqual(Array.from(solved.path), ["Right", "Right", "Right"]);
+  assert.equal(sequences.every(sequence => !("macroPath" in sequence)), true);
 });
 
 test("box-run macros can reject an intermediate discovery contradiction", () => {
@@ -2028,6 +2056,8 @@ test("box-run macros can reject an intermediate discovery contradiction", () => 
   assert.equal(sequences[0].pushes, 1);
   assert.equal(sequences[1].pushes, 2);
   assert.equal(sequences[1].macroRejectedReason, "fixture-conflict");
+  assert.deepEqual(Array.from(sequences[1].path), ["Right", "Right", "Right"]);
+  assert.equal(sequences.every(sequence => !("macroPath" in sequence)), true);
   assert.equal(sequences.some(sequence => sequence.pushes > 2), false);
 });
 

@@ -13,7 +13,7 @@ to production search.
 Current reference point
 -----------------------
 
-Build 2026-07-24.46 canonicalizes every replay-valid result before presenting it:
+Build 2026-07-24.47 canonicalizes every replay-valid result before presenting it:
 exact repeated-state cycles are erased, walking between the retained pushes is
 replaced by shortest legal walking, and motion after the solved state is removed.
 On the reviewed base, mirrored, and rotated Huge runs this reduces build `.42`'s
@@ -34,6 +34,13 @@ push-permutation optimizer now reschedules independent per-box push chains after
 the user requests refinement. It reduces the reviewed 1,003-move structural
 incumbent to 917 moves and improves the 640-move diagnostic incumbent to 618
 moves when combined with exact windows.
+The structural hot path now traverses inaccessible regions, corral boundaries,
+and local-domain closure on the compiled dense graph, retains bounded
+order-sensitive reachability results, and shares macro path segments until an
+endpoint survives. Base, mirrored, and rotated Huge keep the exact
+1,780 visited / 13,279 generated counters and 1,003-move / 306-push result while
+completing in 16.0-16.6 seconds in the isolated Node harness instead of the
+previous reviewed 35-47 second range.
 
 Roadmap rules
 -------------
@@ -276,8 +283,9 @@ flows are stable.
 
 7. Compact macro-state and path storage
    Status: Partial; FESS retained states and paths are compact in build
-   2026-07-24.45, but the other macro searches still retain repeated arrays,
-   objects, and path segments.
+   2026-07-24.45, and build 2026-07-24.47 gives ordinary macro expansion shared
+   parent segments with endpoint-only materialization. Other macro searches still
+   retain repeated state arrays and objects.
 
    Plan:
    - Store box layouts as packed immutable tokens with one moved-box delta where

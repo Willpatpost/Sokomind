@@ -1170,6 +1170,7 @@ function canonicalFessSearch(payload) {
 
 function planMacroBeamSearch(payload) {
   const board = payload.preparedBoard || parse(payload.state);
+  board.reachabilityMemoLimit = payload.reachabilityMemoLimit ?? REACHABILITY_MEMO_LIMIT;
   const initial = {
     robot: payload.state.robot,
     boxes: payload.state.boxes.map(([position, label]) => [
