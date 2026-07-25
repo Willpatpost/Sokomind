@@ -17,15 +17,13 @@ const {
   formatTime,
   shortStateId,
 } = SokomindSearchLog;
-const CODE_MOVE = { U: "Up", D: "Down", L: "Left", R: "Right" };
+const CODE_MOVE = {U: "Up", D: "Down", L: "Left", R: "Right"};
 const SOLVER_BUILD = globalThis.SOKOMIND_BUILD;
 if (!SOLVER_BUILD) throw new Error("Sokomind build manifest was not loaded.");
 const SOLVER_WORKER_URL = `solver-worker.js?build=${SOLVER_BUILD}`;
 const PUSH_BOUNDS_KEY = "sokomind-push-bounds-v1";
-const KEYS = {
-  ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right",
-  w: "Up", W: "Up", s: "Down", S: "Down", a: "Left", A: "Left", d: "Right", D: "Right"
-};
+const KEYS = {ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right",
+  w: "Up", W: "Up", s: "Down", S: "Down", a: "Left", A: "Left", d: "Right", D: "Right"};
 const $ = (id) => document.getElementById(id);
 
 $("solver-build").textContent = SOLVER_BUILD;
@@ -60,9 +58,9 @@ function rememberPushBound() {
 
 function rememberSolverPushBound(pushes) {
   if (!Number.isInteger(pushes) || pushes <= 0 ||
-    pushes >= (pushBounds[levelKey] ?? Infinity)) return false;
+      pushes >= (pushBounds[levelKey] ?? Infinity)) return false;
   pushBounds[levelKey] = pushes;
-  try { localStorage.setItem(PUSH_BOUNDS_KEY, JSON.stringify(pushBounds)); } catch (_error) { }
+  try { localStorage.setItem(PUSH_BOUNDS_KEY, JSON.stringify(pushBounds)); } catch (_error) {}
   return true;
 }
 
@@ -76,7 +74,7 @@ function planUpperBound(plan) {
 }
 
 function moveHistoryText() {
-  return moveHistory.map(({ direction, pushed }, index) => (
+  return moveHistory.map(({direction, pushed}, index) => (
     `${index + 1}. ${direction}${pushed ? " (push)" : ""}`
   )).join("\n");
 }
@@ -160,12 +158,18 @@ function appendSearchLog(category, message, stats = null) {
     message,
     stats: structuredSearchStats(stats),
   };
-  searchLog.push({ text, category, elapsedSeconds, event });
+  searchLog.push({text, category, elapsedSeconds, event});
   _scheduleIncrementalRender();
 }
 
 const PUZZLES = typeof SokomindPuzzles !== "undefined" ? SokomindPuzzles.PUZZLES : null;
 const DIFFICULTY_ORDER = typeof SokomindPuzzles !== "undefined" ? SokomindPuzzles.DIFFICULTY_ORDER : null;
+function levelOrder() {
+  if (typeof SokomindPuzzles !== "undefined" && SokomindPuzzles.orderedKeys) {
+    return SokomindPuzzles.orderedKeys();
+  }
+  return Object.keys(LEVELS);
+}
 
 function title(key) {
   if (PUZZLES && PUZZLES[key]) return PUZZLES[key].title;
@@ -219,7 +223,7 @@ function levelCard(key, rows) {
     const cell = document.createElement("i");
     cell.className = "mini " + (ch === "O" ? "wall" : ch === "R" ? "robot" :
       (ch === "X" || (/[A-Z]/.test(ch) && !"ORS".includes(ch))) ? "box" :
-        (ch === "S" || /[a-z]/.test(ch)) ? "goal" : "");
+      (ch === "S" || /[a-z]/.test(ch)) ? "goal" : "");
     grid.append(cell);
   }));
   thumb.append(grid);
@@ -299,7 +303,7 @@ function tryMove(direction, fromSolver = false) {
   if (!next) { if (!fromSolver) setStatus(`${direction} is blocked.`); return false; }
   startTimer();
   history.push(cloneState(state)); state = next; moves++;
-  moveHistory.push({ direction, pushed }); render(); renderMoveHistory();
+  moveHistory.push({direction, pushed}); render(); renderMoveHistory();
   if (isGoal(state)) complete(); else if (!fromSolver) setStatus("Playing");
   return true;
 }
@@ -317,7 +321,7 @@ function complete() {
   if (solvedShown) return; solvedShown = true;
   $("complete-level").textContent = title(levelKey);
   $("complete-moves").textContent = moves;
-  const keys = Object.keys(LEVELS), hasNext = keys.indexOf(levelKey) < keys.length - 1;
+  const keys = levelOrder(), hasNext = keys.indexOf(levelKey) < keys.length - 1;
   $("next-level").hidden = !hasNext; $("complete-dialog").showModal();
 }
 function setStatus(text) { $("status").textContent = text; }
@@ -360,7 +364,7 @@ function clearSearchTelemetry() {
 }
 function stop(message = true) {
   if (workers.length && message) appendSearchLog("control", "Search stopped by user",
-    { activeWorkers: workers.length, status: "cancelled", reason: "user-stop" });
+    {activeWorkers: workers.length, status: "cancelled", reason: "user-stop"});
   workers.forEach(worker => worker.terminate()); workers = [];
   solverAnytimeActive = false;
   dismissSolutionDecision();
@@ -404,7 +408,7 @@ function evaluateSolutionPath(path, initial = state) {
     if (isPushMove(replay, direction)) pushes++;
     replay = moveState(replay, direction);
   }
-  return { path: validated, pushes, moves: validated.length };
+  return {path: validated, pushes, moves: validated.length};
 }
 function walkBetween(board, boxes, start, target) {
   const blocked = new Set(boxes.map(([y, x]) => pos(y, x)));
@@ -543,7 +547,7 @@ $("copy-search-json").onclick = async () => {
 $("replay").onclick = () => { $("complete-dialog").close(); reset(); };
 $("next-level").onclick = () => {
   $("complete-dialog").close();
-  const keys = Object.keys(LEVELS); loadLevel(keys[keys.indexOf(levelKey) + 1]);
+  const keys = levelOrder(); loadLevel(keys[keys.indexOf(levelKey) + 1]);
 };
 $("close-dialog").onclick = () => $("complete-dialog").close();
 $("solution-dialog").addEventListener("cancel", event => event.preventDefault());
@@ -562,15 +566,15 @@ document.querySelectorAll(".touch-button").forEach(button => {
   button.addEventListener("pointerdown", (event) => {
     event.preventDefault();
     if (!$("home-screen").classList.contains("hidden") ||
-      $("complete-dialog").open || $("solution-dialog").open) return;
+        $("complete-dialog").open || $("solution-dialog").open) return;
     stop(false); tryMove(move); $("board").focus();
   });
 });
 document.addEventListener("keydown", (event) => {
   if (!$("home-screen").classList.contains("hidden") ||
-    $("complete-dialog").open ||
-    $("solution-dialog").open ||
-    SokomindKeyboard.shouldIgnoreGameShortcut(event.target)) return;
+      $("complete-dialog").open ||
+      $("solution-dialog").open ||
+      SokomindKeyboard.shouldIgnoreGameShortcut(event.target)) return;
   const direction = KEYS[event.key];
   if (direction) { event.preventDefault(); stop(false); tryMove(direction); }
   else if (event.key === "Backspace" || event.key.toLowerCase() === "u") undo();
