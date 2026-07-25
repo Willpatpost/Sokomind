@@ -157,6 +157,10 @@ main {
   padding: 1.15rem;
   background: #111722cc;
   border-right: 1px solid var(--line);
+  overflow-y: auto;
+  max-height: calc(100vh - 78px);
+  position: sticky;
+  top: 78px;
 }
 
 .section-heading {
@@ -175,13 +179,68 @@ main {
   gap: .75rem;
 }
 
+.tier-group {
+  border-bottom: 1px solid var(--line);
+}
+
+.tier-group:last-child {
+  border-bottom: 0;
+}
+
+.tier-group summary {
+  list-style: none;
+}
+
+.tier-group summary::-webkit-details-marker {
+  display: none;
+}
+
 .tier-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   font-size: .78rem;
-  font-weight: 600;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: .08em;
   color: var(--muted);
-  padding: .4rem 0 0;
+  padding: .65rem .35rem;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background .15s, color .15s;
+}
+
+.tier-header:hover {
+  background: #1d2633;
+  color: var(--text);
+}
+
+.tier-header::before {
+  content: "\25B8";
+  font-size: .7rem;
+  margin-right: .45rem;
+  transition: transform .15s;
+}
+
+.tier-group[open]>.tier-header::before {
+  transform: rotate(90deg);
+}
+
+.tier-count {
+  font-size: .68rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: #1d2633;
+  border-radius: 999px;
+  padding: .12rem .48rem;
+  min-width: 1.5rem;
+  text-align: center;
+}
+
+.tier-puzzles {
+  display: grid;
+  gap: .5rem;
+  padding: .25rem 0 .65rem;
 }
 
 .level-card {
@@ -723,12 +782,54 @@ dialog>p:not(.eyebrow) {
     border-right: 0;
     border-bottom: 1px solid var(--line);
     padding: .75rem 1rem;
+    max-height: none;
+    position: static;
+    overflow-y: visible;
   }
 
   .level-list {
     display: flex;
+    gap: .35rem;
     overflow-x: auto;
     padding-bottom: .35rem;
+  }
+
+  .tier-group {
+    flex: 0 0 auto;
+    border-bottom: 0;
+    border-right: 1px solid var(--line);
+    padding-right: .5rem;
+  }
+
+  .tier-group:last-child {
+    border-right: 0;
+  }
+
+  .tier-group[open] {
+    display: flex;
+    align-items: flex-start;
+    gap: .35rem;
+  }
+
+  .tier-header {
+    padding: .35rem .5rem;
+    font-size: .7rem;
+    white-space: nowrap;
+  }
+
+  .tier-header::before {
+    content: "\25BE";
+  }
+
+  .tier-group[open]>.tier-header::before {
+    transform: none;
+    content: "\25B4";
+  }
+
+  .tier-puzzles {
+    display: flex;
+    gap: .35rem;
+    padding: 0;
   }
 
   .level-card {
@@ -1010,11 +1111,6 @@ button {
 
   .app-shell {
     flex-direction: column;
-  }
-
-  .levels-panel {
-    max-height: 30vh;
-    overflow-y: auto;
   }
 
   .toolbar {

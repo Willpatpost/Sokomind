@@ -17,13 +17,15 @@ const {
   formatTime,
   shortStateId,
 } = SokomindSearchLog;
-const CODE_MOVE = {U: "Up", D: "Down", L: "Left", R: "Right"};
+const CODE_MOVE = { U: "Up", D: "Down", L: "Left", R: "Right" };
 const SOLVER_BUILD = globalThis.SOKOMIND_BUILD;
 if (!SOLVER_BUILD) throw new Error("Sokomind build manifest was not loaded.");
 const SOLVER_WORKER_URL = `solver-worker.js?build=${SOLVER_BUILD}`;
 const PUSH_BOUNDS_KEY = "sokomind-push-bounds-v1";
-const KEYS = {ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right",
-  w: "Up", W: "Up", s: "Down", S: "Down", a: "Left", A: "Left", d: "Right", D: "Right"};
+const KEYS = {
+  ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right",
+  w: "Up", W: "Up", s: "Down", S: "Down", a: "Left", A: "Left", d: "Right", D: "Right"
+};
 const $ = (id) => document.getElementById(id);
 
 $("solver-build").textContent = SOLVER_BUILD;
@@ -58,9 +60,9 @@ function rememberPushBound() {
 
 function rememberSolverPushBound(pushes) {
   if (!Number.isInteger(pushes) || pushes <= 0 ||
-      pushes >= (pushBounds[levelKey] ?? Infinity)) return false;
+    pushes >= (pushBounds[levelKey] ?? Infinity)) return false;
   pushBounds[levelKey] = pushes;
-  try { localStorage.setItem(PUSH_BOUNDS_KEY, JSON.stringify(pushBounds)); } catch (_error) {}
+  try { localStorage.setItem(PUSH_BOUNDS_KEY, JSON.stringify(pushBounds)); } catch (_error) { }
   return true;
 }
 
@@ -74,7 +76,7 @@ function planUpperBound(plan) {
 }
 
 function moveHistoryText() {
-  return moveHistory.map(({direction, pushed}, index) => (
+  return moveHistory.map(({ direction, pushed }, index) => (
     `${index + 1}. ${direction}${pushed ? " (push)" : ""}`
   )).join("\n");
 }
@@ -158,7 +160,7 @@ function appendSearchLog(category, message, stats = null) {
     message,
     stats: structuredSearchStats(stats),
   };
-  searchLog.push({text, category, elapsedSeconds, event});
+  searchLog.push({ text, category, elapsedSeconds, event });
   _scheduleIncrementalRender();
 }
 
@@ -173,23 +175,38 @@ function renderLevels() {
   $("level-count").textContent = `${Object.keys(LEVELS).length} puzzles`;
   const list = $("level-list");
   const entries = Object.entries(LEVELS);
-  const items = [];
   if (PUZZLES && DIFFICULTY_ORDER) {
+    const groups = [];
     for (const tier of DIFFICULTY_ORDER) {
       const tierEntries = entries.filter(([key]) => PUZZLES[key]?.difficulty === tier);
       if (tierEntries.length === 0) continue;
-      const header = document.createElement("div");
-      header.className = "tier-header";
-      header.textContent = tier[0].toUpperCase() + tier.slice(1);
-      items.push(header);
-      for (const [key, rows] of tierEntries) items.push(levelCard(key, rows));
+      const activeTier = PUZZLES[levelKey]?.difficulty === tier;
+      const details = document.createElement("details");
+      details.className = "tier-group";
+      if (activeTier) details.open = true;
+      const summary = document.createElement("summary");
+      summary.className = "tier-header";
+      const label = document.createElement("span");
+      label.textContent = tier[0].toUpperCase() + tier.slice(1);
+      const count = document.createElement("span");
+      count.className = "tier-count";
+      count.textContent = tierEntries.length;
+      summary.append(label, count);
+      details.append(summary);
+      const container = document.createElement("div");
+      container.className = "tier-puzzles";
+      for (const [key, rows] of tierEntries) container.append(levelCard(key, rows));
+      details.append(container);
+      groups.push(details);
     }
     const ungrouped = entries.filter(([key]) => !PUZZLES[key]?.difficulty);
-    for (const [key, rows] of ungrouped) items.push(levelCard(key, rows));
+    for (const [key, rows] of ungrouped) groups.push(levelCard(key, rows));
+    list.replaceChildren(...groups);
   } else {
+    const items = [];
     for (const [key, rows] of entries) items.push(levelCard(key, rows));
+    list.replaceChildren(...items);
   }
-  list.replaceChildren(...items);
 }
 function levelCard(key, rows) {
   const puzzle = PUZZLES?.[key];
@@ -202,7 +219,7 @@ function levelCard(key, rows) {
     const cell = document.createElement("i");
     cell.className = "mini " + (ch === "O" ? "wall" : ch === "R" ? "robot" :
       (ch === "X" || (/[A-Z]/.test(ch) && !"ORS".includes(ch))) ? "box" :
-      (ch === "S" || /[a-z]/.test(ch)) ? "goal" : "");
+        (ch === "S" || /[a-z]/.test(ch)) ? "goal" : "");
     grid.append(cell);
   }));
   thumb.append(grid);
@@ -282,7 +299,7 @@ function tryMove(direction, fromSolver = false) {
   if (!next) { if (!fromSolver) setStatus(`${direction} is blocked.`); return false; }
   startTimer();
   history.push(cloneState(state)); state = next; moves++;
-  moveHistory.push({direction, pushed}); render(); renderMoveHistory();
+  moveHistory.push({ direction, pushed }); render(); renderMoveHistory();
   if (isGoal(state)) complete(); else if (!fromSolver) setStatus("Playing");
   return true;
 }
@@ -343,7 +360,7 @@ function clearSearchTelemetry() {
 }
 function stop(message = true) {
   if (workers.length && message) appendSearchLog("control", "Search stopped by user",
-    {activeWorkers: workers.length, status: "cancelled", reason: "user-stop"});
+    { activeWorkers: workers.length, status: "cancelled", reason: "user-stop" });
   workers.forEach(worker => worker.terminate()); workers = [];
   solverAnytimeActive = false;
   dismissSolutionDecision();
@@ -387,7 +404,7 @@ function evaluateSolutionPath(path, initial = state) {
     if (isPushMove(replay, direction)) pushes++;
     replay = moveState(replay, direction);
   }
-  return {path: validated, pushes, moves: validated.length};
+  return { path: validated, pushes, moves: validated.length };
 }
 function walkBetween(board, boxes, start, target) {
   const blocked = new Set(boxes.map(([y, x]) => pos(y, x)));
@@ -545,15 +562,15 @@ document.querySelectorAll(".touch-button").forEach(button => {
   button.addEventListener("pointerdown", (event) => {
     event.preventDefault();
     if (!$("home-screen").classList.contains("hidden") ||
-        $("complete-dialog").open || $("solution-dialog").open) return;
+      $("complete-dialog").open || $("solution-dialog").open) return;
     stop(false); tryMove(move); $("board").focus();
   });
 });
 document.addEventListener("keydown", (event) => {
   if (!$("home-screen").classList.contains("hidden") ||
-      $("complete-dialog").open ||
-      $("solution-dialog").open ||
-      SokomindKeyboard.shouldIgnoreGameShortcut(event.target)) return;
+    $("complete-dialog").open ||
+    $("solution-dialog").open ||
+    SokomindKeyboard.shouldIgnoreGameShortcut(event.target)) return;
   const direction = KEYS[event.key];
   if (direction) { event.preventDefault(); stop(false); tryMove(direction); }
   else if (event.key === "Backspace" || event.key.toLowerCase() === "u") undo();
@@ -561,4 +578,3 @@ document.addEventListener("keydown", (event) => {
 });
 window.addEventListener("resize", () => { fitBoardToScreen(); });
 loadLevel(levelKey);
-
