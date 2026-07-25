@@ -7,9 +7,30 @@ const test = require("node:test");
 
 const ROOT = path.join(__dirname, "..");
 const PRODUCTION_SOLVER_FILES = [
-  "docs/solver-worker.js",
-  "docs/solver-engine.js",
-  "docs/solver-search.js",
+  "src/solver-worker.js",
+  "src/state.js",
+  "src/memo.js",
+  "src/depth-map.js",
+  "src/compact-table.js",
+  "src/packed-path.js",
+  "src/metrics.js",
+  "src/topology.js",
+  "src/board.js",
+  "src/heuristic.js",
+  "src/deadlock.js",
+  "src/analysis.js",
+  "src/solution-improvement.js",
+  "src/subproblem-cache.js",
+  "src/goal-ordering.js",
+  "src/chokepoint.js",
+  "src/retrograde.js",
+  "src/pattern-db.js",
+  "src/push-generation.js",
+  "src/pi-corral.js",
+  "src/mobile.js",
+  "src/difficulty.js",
+  "src/solver-engine.js",
+  "src/solver-search.js",
   "searches/Sokomind.py",
 ];
 const BUILTIN_LEVEL_NAMES = ["ultra-tiny", "tiny", "medium", "large", "huge"];

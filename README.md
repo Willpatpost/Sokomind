@@ -23,12 +23,15 @@ cells for distinct room, gate, packing, dependency, detour, and mobility states.
 - [Desktop application setup and usage](docs/DESKTOP.md)
 - [Web application documentation](docs/README.md)
 - [Solver architecture and puzzle-independence rules](docs/ARCHITECTURE.md)
-- [Forward development roadmap](docs/ROADMAP.md)
+- [Planned improvements and development status](docs/IMPROVEMENTS.md)
+- [Codebase overview and module map](docs/CODEBASE_OVERVIEW.md)
+- [Module reference](docs/MODULE_REFERENCE.md)
 
 ## Repository layout
 
 - `searches/`: Python solver, desktop application, and compatibility CLIs
-- `docs/`: browser application and project documentation
+- `src/`: browser application source code
+- `docs/`: project documentation
 - `tests/`: Python and real-browser integration tests
 - `bench/`: deterministic benchmarks, profilers, and solution verification
 - `shared/`: cross-runtime puzzle and rule fixtures
@@ -43,7 +46,6 @@ npm run test:unit
 npm run check:build
 npm run check:quality
 node bench/performance-gate.js
-node bench/verify-solution.js huge docs/optimalForHuge.txt
 npm ci
 npx playwright install chromium webkit
 npm run test:browser
@@ -51,7 +53,7 @@ npm run test:browser
 
 On Windows, use `py -m unittest discover -v` if `python` is not on PATH.
 Supported development runtimes are Python 3.10 or newer and Node 20 through 24.
-The Playwright suite serves `docs/` itself and exercises Chromium and WebKit.
+The Playwright suite serves `src/` itself and exercises Chromium and WebKit.
 
 The canonical level catalog and cross-runtime parsing/rule cases live in
 `shared/sokomind-conformance.json`. Python loads its built-in levels from this
@@ -59,14 +61,3 @@ file; browser-embedded levels and benchmark replay rules are checked against the
 same fixtures in CI.
 
 
-## Saved Huge diagnostic solution
-
-The saved route is a replay-valid regression artifact used to study difficult
-states and pruning behavior. It is never consumed by the solver and is not a
-puzzle-specific shortcut. Verify it with:
-
-```powershell
-node bench/verify-solution.js huge docs/optimalForHuge.txt
-```
-
-![Huge Solution Proof](data/images/HugeSolutionProof.png)

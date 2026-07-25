@@ -1,7 +1,7 @@
 const {spawn} = require("node:child_process");
 const path = require("node:path");
 const {performance} = require("node:perf_hooks");
-const {LEVELS} = require("../docs/levels.js");
+const {LEVELS} = require("../src/levels.js");
 const {GENERATED_CASES, mirrorRows, rotateRows} = require("./generated-cases.js");
 
 const CASE_RUNNER = path.join(__dirname, "case-runner.js");
@@ -194,7 +194,7 @@ function usage() {
     "",
     "Options:",
     "  --suite smoke|alpha|validation|fess|huge  Benchmark suite to run (default: smoke).",
-    "  --level LEVEL            Run one level from docs/levels.js.",
+    "  --level LEVEL            Run one level from src/levels.js.",
     "  --algorithm ALGORITHM    Algorithm for --level (default: push-beam).",
     "  --max-visited N          Worker state budget for a single-level run.",
     "  --timeout-ms N           Child-process timeout for a single-level run.",

@@ -7,8 +7,8 @@
   "scripts": {
     "check:build": "node scripts/check-build.js",
     "check:quality": "node scripts/quality-check.js",
-    "test:unit": "node --test docs/*.test.js bench/*.test.js",
-    "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=90 --test-coverage-branches=75 --test-coverage-functions=90 --test-coverage-include=docs/director-policy.js --test-coverage-include=docs/game-state.js --test-coverage-include=docs/keyboard-policy.js --test-coverage-include=docs/path-validation.js --test-coverage-include=docs/search-log.js --test-coverage-include=docs/solver-engine.js --test-coverage-include=docs/solver-search.js docs/*.test.js bench/*.test.js",
+    "test:unit": "node --test tests/js/*.test.js bench/*.test.js",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=90 --test-coverage-branches=75 --test-coverage-functions=90 --test-coverage-include=src/director-policy.js --test-coverage-include=src/game-state.js --test-coverage-include=src/keyboard-policy.js --test-coverage-include=src/path-validation.js --test-coverage-include=src/search-log.js --test-coverage-include=src/state.js --test-coverage-include=src/memo.js --test-coverage-include=src/metrics.js --test-coverage-include=src/topology.js --test-coverage-include=src/board.js --test-coverage-include=src/heuristic.js --test-coverage-include=src/deadlock.js --test-coverage-include=src/analysis.js --test-coverage-include=src/push-generation.js --test-coverage-include=src/solver-search.js tests/js/*.test.js bench/*.test.js",
     "test:performance": "node bench/performance-gate.js",
     "test:browser": "playwright test",
     "test:browser:chromium": "playwright test --project=chromium"

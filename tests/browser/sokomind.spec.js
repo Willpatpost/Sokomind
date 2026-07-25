@@ -1,7 +1,7 @@
 "use strict";
 
 const {test, expect} = require("@playwright/test");
-const {build: EXPECTED_BUILD} = require("../../docs/build.json");
+const {build: EXPECTED_BUILD} = require("../../src/build.json");
 
 async function enterGame(page) {
   await page.goto("/");

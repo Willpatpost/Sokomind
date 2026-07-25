@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
 
-const root = path.resolve(__dirname, "../../docs");
+const root = path.resolve(__dirname, "../../src");
 const types = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",

@@ -4,11 +4,23 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const {performance} = require("node:perf_hooks");
-const {LEVELS, stateFromRows} = require("../docs/levels.js");
+const {LEVELS, stateFromRows} = require("../src/levels.js");
+
+const ENGINE_MODULE_FILES = [
+  "state.js", "memo.js", "depth-map.js", "compact-table.js", "packed-path.js",
+  "metrics.js", "topology.js", "board.js",
+  "heuristic.js", "deadlock.js", "analysis.js",
+  "solution-improvement.js", "subproblem-cache.js",
+  "goal-ordering.js", "chokepoint.js", "retrograde.js", "pattern-db.js",
+  "push-generation.js",
+  "pi-corral.js",
+  "mobile.js", "difficulty.js",
+  "solver-search.js",
+];
 
 function loadEngine() {
-  const source = ["solver-engine.js", "solver-search.js"]
-    .map(file => fs.readFileSync(path.join(__dirname, "..", "docs", file), "utf8"))
+  const source = ENGINE_MODULE_FILES
+    .map(file => fs.readFileSync(path.join(__dirname, "..", "src", file), "utf8"))
     .join("\n");
   const context = {console, postMessage() {}};
   vm.runInNewContext(source, context, {filename: "solver-engine.js"});

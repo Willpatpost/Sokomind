@@ -2,7 +2,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const {LEVELS} = require("../docs/levels.js");
+const {LEVELS} = require("../src/levels.js");
 const {replayPath} = require("./evaluator.js");
 
 const MOVE_LINE = /^\s*(\d+)\.\s+(Up|Down|Left|Right)(\s+\(push\))?\s*$/;

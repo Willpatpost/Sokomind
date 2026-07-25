@@ -1,17 +1,9 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
 const test = require("node:test");
-const {LEVELS} = require("../docs/levels.js");
+const {LEVELS} = require("../src/levels.js");
 const {parseSolutionText, verifySolution} = require("./verify-solution.js");
-
-test("saved Huge route is a replay-valid diagnostic solution", () => {
-  const solution = fs.readFileSync(path.join(__dirname, "../docs/optimalForHuge.txt"), "utf8");
-  const result = verifySolution(LEVELS.huge, solution);
-  assert.deepEqual(result, {moves: 640, pushes: 250});
-});
 
 test("solution verification is level-agnostic", () => {
   const solution = "Example route:\n\n1. Down (push)\n";

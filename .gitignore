@@ -11,3 +11,6 @@ htmlcov/
 node_modules/
 playwright-report/
 test-results/
+wasm/sokomind-core/target/
+wasm/sokomind-core/pkg/
+wasm/sokomind-core/pkg-node/

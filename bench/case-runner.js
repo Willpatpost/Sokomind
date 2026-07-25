@@ -2,7 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const {performance} = require("node:perf_hooks");
-const {LEVELS, stateFromRows} = require("../docs/levels.js");
+const {LEVELS, stateFromRows} = require("../src/levels.js");
 const {evaluateCheckpoints} = require("./evaluator.js");
 
 const DIRS = {Up: [-1, 0], Down: [1, 0], Left: [0, -1], Right: [0, 1]};
@@ -37,9 +37,21 @@ function validateRows(rows) {
   return true;
 }
 
+const ENGINE_MODULE_FILES = [
+  "state.js", "memo.js", "depth-map.js", "compact-table.js", "packed-path.js",
+  "metrics.js", "topology.js", "board.js",
+  "heuristic.js", "deadlock.js", "analysis.js",
+  "solution-improvement.js", "subproblem-cache.js",
+  "goal-ordering.js", "chokepoint.js", "retrograde.js", "pattern-db.js",
+  "push-generation.js",
+  "pi-corral.js",
+  "mobile.js", "difficulty.js",
+  "solver-search.js",
+];
+
 function loadWorker(progress, streamProgress) {
-  const source = ["solver-engine.js", "solver-search.js"]
-    .map(file => fs.readFileSync(path.join(__dirname, "..", "docs", file), "utf8"))
+  const source = ENGINE_MODULE_FILES
+    .map(file => fs.readFileSync(path.join(__dirname, "..", "src", file), "utf8"))
     .join("\n");
   const context = {
     postMessage: message => {

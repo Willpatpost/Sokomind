@@ -16,16 +16,20 @@ route and must remain correct when it is absent.
 ## Runtime components
 
 - `searches/Sokomind.py` contains the Python parser and search implementations.
-- `docs/app.js` owns browser UI state, rendering, controls, timing, and animation.
-- `docs/game-state.js` is the independently testable browser gameplay/rules core.
-- `docs/search-log.js` provides pure readable and structured telemetry formatting.
-- `docs/solver-director.js` owns worker portfolios, checkpoint handoffs, lifecycle
+- `src/app.js` owns browser UI state, rendering, controls, timing, and animation.
+- `src/game-state.js` is the independently testable browser gameplay/rules core.
+- `src/search-log.js` provides pure readable and structured telemetry formatting.
+- `src/solver-director.js` owns worker portfolios, checkpoint handoffs, lifecycle
   accounting, replay validation, and exact-search transitions.
-- `docs/solver-worker.js` is the stable Web Worker protocol entry point. It carries
+- `src/solver-worker.js` is the stable Web Worker protocol entry point. It carries
   the page's build query into each implementation module.
-- `docs/solver-engine.js` owns browser board parsing, state identities, topology,
-  heuristics, deadlocks, dependencies, local analysis, and push generation.
-- `docs/solver-search.js` owns browser search algorithms, reconstruction,
+- The solver engine is split into focused modules loaded by the worker:
+  `src/state.js` (identities), `src/memo.js` (caching), `src/metrics.js`
+  (performance), `src/topology.js` (floor graph), `src/board.js` (parsing),
+  `src/heuristic.js` (assignment), `src/deadlock.js` (pruning),
+  `src/analysis.js` (local search), `src/push-generation.js` (neighbors).
+  `src/solver-engine.js` is the barrel re-export for backward compatibility.
+- `src/solver-search.js` owns browser search algorithms, reconstruction,
   resumable exact proof checkpoints, progress messages, terminal statuses, and
   result telemetry.
 - `shared/sokomind-conformance.json` is the canonical built-in level catalog and
@@ -64,6 +68,6 @@ Each entry declares an independent oracle family; the differential suite combine
 exhaustive 2x3 enumeration, deterministic 3x3/3x4 properties, authored strategic
 structures, and structural counterexample shrinking.
 
-Playwright serves the production `docs/` scripts and worker entry in Chromium and
+Playwright serves the production `src/` scripts and worker entry in Chromium and
 WebKit. Scripted workers are used only for deterministic stale/error and Ultimate
 campaign events; ordinary hint and solve coverage uses the real Web Worker.

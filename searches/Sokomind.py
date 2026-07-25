@@ -20,7 +20,7 @@ from enum import Enum
 from functools import lru_cache
 from pathlib import Path
 from threading import Event
-from typing import Callable, Iterable, Sequence
+from typing import Callable, Dict, Iterable, Optional, Sequence, Tuple
 
 DIRECTIONS = {
     "Up": (-1, 0),
@@ -1036,7 +1036,7 @@ def get_neighbors(
     return neighbors
 
 
-ReachabilityParents = dict[Position, tuple[Position, str] | None]
+ReachabilityParents = Dict[Position, Optional[Tuple[Position, str]]]
 
 
 def _reachable_parents(state: State) -> ReachabilityParents:

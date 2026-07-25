@@ -6,7 +6,7 @@ const path = require("node:path");
 const {spawnSync} = require("node:child_process");
 
 const root = path.resolve(__dirname, "..");
-const roots = ["bench", "docs", "scripts", path.join("tests", "browser")];
+const roots = ["bench", "src", "scripts", path.join("tests", "browser"), path.join("tests", "js")];
 
 function filesUnder(relative) {
   const absolute = path.join(root, relative);

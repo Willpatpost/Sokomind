@@ -6,7 +6,13 @@ const vm = require("node:vm");
 const {performance} = require("node:perf_hooks");
 
 const root = path.resolve(__dirname, "..");
-const source = fs.readFileSync(path.join(root, "docs", "solver-engine.js"), "utf8");
+const engineModuleFiles = [
+  "state.js", "memo.js", "metrics.js", "topology.js", "board.js",
+  "heuristic.js", "deadlock.js", "analysis.js", "push-generation.js",
+];
+const source = engineModuleFiles
+  .map(file => fs.readFileSync(path.join(root, "src", file), "utf8"))
+  .join("\n");
 const context = {console, performance};
 vm.runInNewContext(source, context, {filename: "solver-engine.js"});
 

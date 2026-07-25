@@ -1,6 +1,6 @@
 "use strict";
 
-const {LEVELS} = require("../docs/levels.js");
+const {LEVELS} = require("../src/levels.js");
 
 function mirrorRows(rows) {
   return rows.map(row => [...row].reverse().join(""));

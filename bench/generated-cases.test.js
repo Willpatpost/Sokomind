@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
-const {LEVELS} = require("../docs/levels.js");
+const {LEVELS} = require("../src/levels.js");
 const {
   CERTIFIED_MULTIBOX_CASES,
   CERTIFIED_STRATEGIC_FAMILIES,
