@@ -8,8 +8,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { PuzzleDefinition, Direction } from "../src/core/model.ts";
-import { createSession, stepSnapshot } from "../src/core/game-session.ts";
+import type { PuzzleDefinition } from "../src/core/model.ts";
+import { createSession } from "../src/core/game-session.ts";
 import type { SolverRequest } from "../src/solver/contracts.ts";
 import { search } from "../src/solver/implementations/sokomind-engine/engine.generated.js";
 import {
