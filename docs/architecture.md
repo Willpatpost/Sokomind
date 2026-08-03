@@ -147,8 +147,10 @@ before the direct/bidirectional discovery portfolio, so it neither competes
 with Grand Hall for the browser memory ceiling nor monopolizes an entire
 unsuccessful short run.
 
-Every search identity retains the exact keeper cell because walking distance
-contributes to the sole move-count objective.
+Every move-optimal search identity retains the exact keeper cell because walking
+distance contributes to the sole move-count objective. First-found searches may
+canonicalize the keeper's reachable region because they do not claim a minimum
+move count.
 
 A verified long route may enter a separate bounded rewrite worker. That lane
 can canonicalize walks, reorder compatible push chains, and search local

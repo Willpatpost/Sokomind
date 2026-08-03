@@ -32,3 +32,45 @@ test("homepage loads and navigates to puzzles", async ({ page }) => {
   await page.getByRole("button", { name: "Browse puzzles" }).click();
   await expect(page.getByRole("heading", { name: "Choose a difficulty" })).toBeVisible();
 });
+
+test("a real touch swipe crosses the board event boundary and moves the keeper", async ({
+  page,
+}) => {
+  await page.goto("./#/play/ultra-tiny");
+  const board = page.getByTestId("game-board");
+  await expect(board).toBeVisible();
+
+  await board.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    const start = {
+      clientX: bounds.left + bounds.width / 2,
+      clientY: bounds.top + bounds.height / 2,
+    };
+    const end = {
+      clientX: start.clientX + 80,
+      clientY: start.clientY,
+    };
+
+    const dispatchTouch = (
+      type: "touchstart" | "touchmove" | "touchend",
+      touches: typeof start[],
+      changedTouches: typeof start[],
+    ) => {
+      const event = new TouchEvent(type, { bubbles: true, cancelable: true });
+      Object.defineProperties(event, {
+        touches: { value: touches },
+        changedTouches: { value: changedTouches },
+      });
+      element.dispatchEvent(event);
+    };
+
+    // WebKit exposes TouchEvent but intentionally disallows the Touch
+    // constructor. Supplying the same coordinate-bearing TouchList shape keeps
+    // this test portable while still crossing the native touch-event boundary.
+    dispatchTouch("touchstart", [start], [start]);
+    dispatchTouch("touchmove", [end], [end]);
+    dispatchTouch("touchend", [], [end]);
+  });
+
+  await expect(page.getByTestId("moves-count")).toHaveText("1");
+});

@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   createSession,
   isShareableActionLog,
@@ -22,10 +28,16 @@ import {
   writeProgressSyncSnapshot,
   type ProgressSyncSnapshot,
 } from "@/src/shared/progress-sync";
-import { STORAGE_KEYS } from "@/src/shared/storage";
 import {
+  DOCUMENT_APP_RESET_GENERATION,
+  STORAGE_KEYS,
+  loadAppResetGeneration,
+} from "@/src/shared/storage";
+import {
+  hydrateSessionFromIDB,
   loadSession,
   saveSession,
+  type RestoredSession,
 } from "@/src/shared/session-persistence";
 
 export interface CompletionRecordUpdate {
@@ -36,37 +48,62 @@ export interface CompletionRecordUpdate {
 function createInitialSession(
   puzzle: PuzzleDefinition,
   actionLog?: string,
-): { readonly session: GameSession; readonly restored: boolean } {
+  freshAttempt = false,
+): {
+  readonly session: GameSession;
+  readonly restored: boolean;
+  readonly persisted: RestoredSession | null;
+} {
   if (actionLog !== undefined) {
     if (!isShareableActionLog(actionLog)) {
       throw new Error("Cannot replay an invalid or oversized shared route.");
     }
-    try {
-      return { session: replayActionLog(puzzle, actionLog), restored: false };
-    } catch {
-      return { session: createSession(puzzle), restored: false };
-    }
+    return {
+      session: replayActionLog(puzzle, actionLog),
+      restored: false,
+      persisted: null,
+    };
+  }
+
+  if (freshAttempt) {
+    return {
+      session: createSession(puzzle),
+      restored: false,
+      persisted: null,
+    };
   }
 
   const stored = loadSession((puzzleId) =>
     puzzleId === puzzle.id ? puzzle : undefined);
   if (stored && stored.session.puzzle.id === puzzle.id) {
-    return { session: stored.session, restored: stored.resumed };
+    return {
+      session: stored.session,
+      restored: stored.resumed,
+      persisted: stored,
+    };
   }
 
-  return { session: createSession(puzzle), restored: false };
+  return {
+    session: createSession(puzzle),
+    restored: false,
+    persisted: null,
+  };
 }
 
 export function usePersistedPlay(
   puzzle: PuzzleDefinition,
   actionLog?: string,
   onSessionRestored?: (moves: number) => void,
+  freshAttempt = false,
 ) {
   const [initialSession] = useState(() =>
-    createInitialSession(puzzle, actionLog));
+    createInitialSession(puzzle, actionLog, freshAttempt));
   const [session, setSession] = useState<GameSession>(initialSession.session);
   const [sessionRestored, setSessionRestored] = useState(
     initialSession.restored,
+  );
+  const [sessionPersistenceReady, setSessionPersistenceReady] = useState(
+    actionLog !== undefined || freshAttempt,
   );
   const [writerId] = useState(createProgressWriterId);
   const [initialProgressSnapshot] = useState(loadProgressSyncSnapshot);
@@ -75,11 +112,18 @@ export function usePersistedPlay(
     initialProgressSnapshot.progress,
   );
   const sessionRef = useRef(session);
+  const sessionMutationRef = useRef(0);
   const initializedRef = useRef(false);
+  const restoredAnnouncementRef = useRef(false);
 
   const commitSession = useCallback((next: GameSession) => {
+    sessionMutationRef.current += 1;
     sessionRef.current = next;
     setSession(next);
+    // A move made before IDB hydration settles chooses the visible attempt.
+    // Make it persistable immediately and let the pending read decline to
+    // replace it via the mutation counter.
+    setSessionPersistenceReady(true);
   }, []);
 
   const commitProgressSnapshot = useCallback((next: ProgressSyncSnapshot) => {
@@ -87,21 +131,80 @@ export function usePersistedPlay(
     setProgress(next.progress);
   }, []);
 
+  useLayoutEffect(() => {
+    if (freshAttempt && actionLog === undefined) {
+      // Persist before paint. Route identity changes remount the play page, and
+      // WebKit can otherwise navigate back before a passive autosave replaces
+      // the attempt belonging to the puzzle that was just left.
+      saveSession(initialSession.session);
+    }
+  }, [actionLog, freshAttempt, initialSession]);
+
   useEffect(() => {
+    let active = true;
+    const next = initializedRef.current
+      ? createInitialSession(puzzle, actionLog, freshAttempt)
+      : initialSession;
     if (initializedRef.current) {
-      const next = createInitialSession(puzzle, actionLog);
       commitSession(next.session);
       setSessionRestored(next.restored);
     }
     initializedRef.current = true;
-  }, [puzzle, actionLog, commitSession]);
+
+    if (actionLog !== undefined) {
+      setSessionPersistenceReady(true);
+      return;
+    }
+
+    if (freshAttempt) {
+      setSessionPersistenceReady(true);
+      return;
+    }
+
+    setSessionPersistenceReady(false);
+    const mutationAtStart = sessionMutationRef.current;
+    void hydrateSessionFromIDB(
+      (puzzleId) => puzzleId === puzzle.id ? puzzle : undefined,
+      next.persisted,
+    ).then((hydrated) => {
+      if (!active) return;
+      if (
+        sessionMutationRef.current === mutationAtStart &&
+        hydrated &&
+        hydrated.session.puzzle.id === puzzle.id &&
+        hydrated.session.actionLog !== next.session.actionLog
+      ) {
+        commitSession(hydrated.session);
+        setSessionRestored(hydrated.resumed);
+      }
+      setSessionPersistenceReady(true);
+    });
+
+    return () => {
+      active = false;
+      if (
+        sessionMutationRef.current !== mutationAtStart &&
+        sessionRef.current.puzzle.id === puzzle.id &&
+        loadAppResetGeneration() === DOCUMENT_APP_RESET_GENERATION
+      ) {
+        // A user can move while a slow IDB read is pending. Flush that newer
+        // in-memory attempt when navigating away; otherwise the readiness gate
+        // suppresses autosave and the move disappears on unmount.
+        saveSession(sessionRef.current);
+      }
+    };
+  }, [puzzle, actionLog, commitSession, freshAttempt, initialSession]);
 
   useEffect(() => {
-    if (sessionRestored && session.actionLog.length > 0) {
+    if (
+      !restoredAnnouncementRef.current &&
+      sessionRestored &&
+      session.actionLog.length > 0
+    ) {
+      restoredAnnouncementRef.current = true;
       onSessionRestored?.(session.moves);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [onSessionRestored, session.actionLog.length, session.moves, sessionRestored]);
 
   useEffect(() => {
     const previousTitle = document.title;
@@ -112,8 +215,9 @@ export function usePersistedPlay(
   }, [session.puzzle.title]);
 
   useEffect(() => {
+    if (!sessionPersistenceReady || session.puzzle.id !== puzzle.id) return;
     saveSession(session);
-  }, [session]);
+  }, [puzzle.id, session, sessionPersistenceReady]);
 
   useEffect(() => {
     const handleStorage = (event: StorageEvent) => {
@@ -185,6 +289,7 @@ export function usePersistedPlay(
   return {
     session,
     sessionRestored,
+    sessionPersistenceReady,
     sessionRef,
     progress,
     commitSession,

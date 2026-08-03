@@ -1,6 +1,11 @@
 # Remaining Audit Items: Q8, P1, P2, P6
 
-Four items from the original 55-item audit remain unresolved. Unlike the 51 code-level fixes already applied, these require either algorithmic research (Q8) or external data sourcing (P1, P2, P6). This document details what each item is, why it is hard, what we can do about it, and how it would benefit the project.
+Four intentionally deferred roadmap items remain from the original 55-item
+audit. They are not unpatched defects in the current deployment: Q8 is
+algorithmic research for parity between the classic solvers and the production
+Sokomind engine, while P1, P2, and P6 require externally sourced catalog data.
+This document records their scope, evidence, and acceptance work separately
+from the closed repository audit.
 
 ---
 
@@ -8,7 +13,18 @@ Four items from the original 55-item audit remain unresolved. Unlike the 51 code
 
 ### What It Is
 
-The solver generates successors one push at a time. Every single-cell box movement creates a new search node, even when the outcome is forced (tunnels), the order is predetermined (goal rooms), or the push is provably irrelevant (corrals). These three classical Sokoban pruning techniques are absent from both the A\* engine (`src/solver/search/engine.ts:729-883`) and the IDA\* engine (`src/solver/search/ida-star.ts:554-651`).
+The classic A\* and IDA\* solvers generate successors one push at a time. Every
+single-cell box movement creates a new search node, even when the outcome is
+forced (tunnels), the order is predetermined (goal rooms), or the push is
+provably irrelevant (corrals). These classical Sokoban techniques are not yet
+integrated into `src/solver/search/engine.ts` and
+`src/solver/search/ida-star.ts`.
+
+The production Sokomind engine is materially further ahead: its source modules
+compile tunnel segments, use tunnel-aware push expansion, maintain goal-room
+packing tables, and perform exact-player-region corral analysis. Q8 therefore
+tracks classic-solver parity and further proof/benchmark work; it must not be
+read as claiming those techniques are absent from the application as a whole.
 
 **Tunnel macros**: When a box enters a 1-wide corridor, it can only exit from one of two ends. The solver should skip all intermediate states and emit only the two exit states, eliminating O(corridor\_length) nodes per tunnel push.
 
@@ -26,7 +42,11 @@ The codebase has three deadlock detectors in `src/solver/search/deadlocks.ts` (1
 | 2x2 deadlock | Per-state | Any 2x2 block of walls/boxes with a misplaced box is dead |
 | Freeze deadlock | Per-state | Fixpoint: a box frozen on both axes and not on its goal is dead |
 
-None of these address tunnels, goal rooms, or corrals. The term "macro" appears in `sokomind-solver.ts` but refers to sequence-level planning macros (beam search), not the classical Sokoban pruning macros from the literature.
+These three typed detectors do not themselves address tunnels, goal rooms, or
+corrals. The production engine implements related logic under
+`src/solver/implementations/sokomind-engine/source/`; its sequence planning and
+topology-aware push macros are distinct from adding equivalent behavior to the
+classic A\*/IDA\* successor loops.
 
 ### Why It Is Hard
 

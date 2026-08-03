@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 
 import { PUZZLE_BY_ID } from "../../src/catalog/puzzles.ts";
 import {
@@ -13,6 +13,11 @@ import {
   toLegacyState,
 } from "../../src/solver/implementations/sokomind-solver.ts";
 import { verifySolverSolution } from "../../src/solver/verification.ts";
+import {
+  isPerformanceTestChild,
+  relayPerformanceJson,
+  runPerformanceTestModule,
+} from "../support/child-process-gate.ts";
 
 const MAXIMUMS = Object.freeze({
   searchElapsedMs: 60_000,
@@ -42,6 +47,8 @@ const REVIEWED_REWRITE_RESULT = Object.freeze({
   moveVisited: 25_000,
 });
 
+const HARD_PROCESS_TIMEOUT_MS = MAXIMUMS.totalElapsedMs + 30_000;
+
 function mirrorRows(rows: readonly string[]): readonly string[] {
   return rows.map((row) => [...row].reverse().join(""));
 }
@@ -61,9 +68,7 @@ function requestFor(puzzle: PuzzleDefinition): SolverRequest {
   };
 }
 
-test("Sokomind Solver replay-solves Grand Hall in three orientations", {
-  timeout: MAXIMUMS.totalElapsedMs + 30_000,
-}, (t) => {
+function runHugePerformanceGate(t: TestContext): void {
   const huge = PUZZLE_BY_ID.huge;
   assert.ok(huge);
   const cases = [
@@ -235,4 +240,19 @@ test("Sokomind Solver replay-solves Grand Hall in three orientations", {
   console.info(
     JSON.stringify({ name: "total", elapsedMs: Math.round(totalElapsedMs) }),
   );
-});
+}
+
+const TEST_NAME =
+  "Sokomind Solver replay-solves Grand Hall in three orientations";
+
+if (isPerformanceTestChild(import.meta.url)) {
+  test(TEST_NAME, runHugePerformanceGate);
+} else {
+  test(`${TEST_NAME} within a hard process deadline`, () => {
+    const result = runPerformanceTestModule(
+      import.meta.url,
+      HARD_PROCESS_TIMEOUT_MS,
+    );
+    relayPerformanceJson(result.stdout);
+  });
+}

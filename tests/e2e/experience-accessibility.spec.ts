@@ -97,6 +97,26 @@ test("resolved motion controls every animation and can override the OS preferenc
   expectMotionSuppressed(await readMotionStyles(page, help));
 });
 
+test("experience settings contains focus and restores it on close", async ({
+  page,
+}) => {
+  await page.goto("./");
+  const trigger = page.getByRole("button", { name: "Sound and motion settings" });
+  await trigger.click();
+  const settings = page.getByRole("dialog", { name: "Sound & motion" });
+  await expect(settings.getByRole("button", { name: "Close" })).toBeFocused();
+  expect(await settings.evaluate((dialog) =>
+    dialog instanceof HTMLDialogElement && dialog.open)).toBe(true);
+
+  await page.keyboard.press("Shift+Tab");
+  expect(await settings.evaluate((dialog) =>
+    dialog.contains(document.activeElement))).toBe(true);
+
+  await page.keyboard.press("Escape");
+  await expect(settings).toBeHidden();
+  await expect(trigger).toBeFocused();
+});
+
 test.describe("dark-theme accessibility", () => {
   test.skip(
     ({ browserName }) => browserName !== "chromium",

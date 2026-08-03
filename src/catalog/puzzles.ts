@@ -1,6 +1,10 @@
 import { type Difficulty, type PuzzleDefinition } from "../core/model.ts";
-import { validatePuzzle } from "../core/puzzle.ts";
 import importedPuzzles from "./imported-puzzles.json" with { type: "json" };
+import {
+  assertUniquePuzzleIds,
+  assertValidPuzzleCatalog,
+  createPuzzleByIdIndex,
+} from "./catalog-validation.ts";
 export {
   type PuzzleDifficulty,
   type CollectionInfo,
@@ -281,28 +285,30 @@ const CANONICAL_PUZZLES = [
   },
 ] as const satisfies readonly PuzzleDefinition[];
 
-const validatedImportedPuzzles = (importedPuzzles as readonly PuzzleDefinition[]).filter(p => {
-  const result = validatePuzzle(p);
-  return result.valid;
-});
+const validatedCanonicalPuzzles = assertValidPuzzleCatalog(
+  CANONICAL_PUZZLES,
+  "Canonical puzzle catalog",
+);
+const validatedImportedPuzzles = assertValidPuzzleCatalog(
+  importedPuzzles,
+  "Imported puzzle catalog",
+);
 
-export const PUZZLES: readonly PuzzleDefinition[] = [
-  ...CANONICAL_PUZZLES,
+export const PUZZLES: readonly PuzzleDefinition[] = assertUniquePuzzleIds([
+  ...validatedCanonicalPuzzles,
   ...validatedImportedPuzzles,
-];
+], "Combined puzzle catalog");
 
 export type PuzzleId = string;
 
-const puzzleById: Record<string, PuzzleDefinition> = {};
 const puzzleIndexById = new Map<string, number>();
 for (let index = 0; index < PUZZLES.length; index += 1) {
   const puzzle = PUZZLES[index];
-  puzzleById[puzzle.id] = puzzle;
   puzzleIndexById.set(puzzle.id, index);
 }
 
 export const PUZZLE_BY_ID: Readonly<Record<string, PuzzleDefinition>> =
-  Object.freeze(puzzleById);
+  createPuzzleByIdIndex(PUZZLES);
 
 export interface PuzzleCatalogFilter {
   readonly difficulty?: PuzzleDifficulty | readonly PuzzleDifficulty[];

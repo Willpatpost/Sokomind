@@ -4,7 +4,11 @@ import {
   getPuzzleMetadataById,
 } from "@/src/catalog/puzzle-metadata";
 import { loadPuzzleById } from "@/src/catalog/puzzle-loader";
-import { isShareableActionLog, type PuzzleDefinition } from "@/src/core";
+import {
+  isShareableActionLog,
+  replayActionLog,
+  type PuzzleDefinition,
+} from "@/src/core";
 import { ConfirmDialog } from "@/src/shared/ui/ConfirmDialog";
 import { isOptimal } from "@/src/shared/optimal-cache";
 import { HowToPlay } from "@/src/features/help/HowToPlay";
@@ -36,9 +40,10 @@ function difficultyLabel(value: string): string {
 interface PlayPageProps {
   readonly puzzleId: string;
   readonly actionLog?: string;
+  readonly freshAttempt?: boolean;
 }
 
-export function PlayPage({ puzzleId, actionLog }: PlayPageProps) {
+export function PlayPage({ puzzleId, actionLog, freshAttempt }: PlayPageProps) {
   const puzzleExists = getPuzzleMetadataById(puzzleId) !== undefined;
   const sharedRouteIsValid =
     actionLog === undefined || isShareableActionLog(actionLog);
@@ -47,7 +52,13 @@ export function PlayPage({ puzzleId, actionLog }: PlayPageProps) {
     return <InvalidPlayRoute />;
   }
 
-  return <LoadedPlayPage puzzleId={puzzleId} actionLog={actionLog} />;
+  return (
+    <LoadedPlayPage
+      puzzleId={puzzleId}
+      actionLog={actionLog}
+      freshAttempt={freshAttempt}
+    />
+  );
 }
 
 function InvalidPlayRoute() {
@@ -60,7 +71,7 @@ function InvalidPlayRoute() {
   return null;
 }
 
-function LoadedPlayPage({ puzzleId, actionLog }: PlayPageProps) {
+function LoadedPlayPage({ puzzleId, actionLog, freshAttempt }: PlayPageProps) {
   const [puzzle, setPuzzle] = useState<PuzzleDefinition | null>(null);
   const [failure, setFailure] = useState<Error | null>(null);
 
@@ -94,17 +105,35 @@ function LoadedPlayPage({ puzzleId, actionLog }: PlayPageProps) {
     );
   }
 
-  return <ValidatedPlayPage puzzle={puzzle} actionLog={actionLog} />;
+  if (actionLog !== undefined) {
+    try {
+      replayActionLog(puzzle, actionLog);
+    } catch {
+      // Semantic validation must happen before the persistence hooks mount; an
+      // impossible shared route must never replace the user's saved attempt.
+      return <InvalidPlayRoute />;
+    }
+  }
+
+  return (
+    <ValidatedPlayPage
+      puzzle={puzzle}
+      actionLog={actionLog}
+      freshAttempt={freshAttempt}
+    />
+  );
 }
 
 function ValidatedPlayPage({
   puzzle: definition,
   actionLog,
+  freshAttempt,
 }: {
   readonly puzzle: PuzzleDefinition;
   readonly actionLog?: string;
+  readonly freshAttempt?: boolean;
 }) {
-  const game = usePlayController(definition, actionLog);
+  const game = usePlayController(definition, actionLog, freshAttempt);
   const { session, progress } = game;
   const boardWrapRef = useRef<HTMLDivElement>(null);
 

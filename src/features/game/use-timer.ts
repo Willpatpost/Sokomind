@@ -10,18 +10,6 @@ export interface TimerController {
   reset(): void;
 }
 
-export function formatTime(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-
-  if (hours > 0) {
-    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-  }
-  return `${minutes}:${String(seconds).padStart(2, "0")}`;
-}
-
 function readPersistedTime(key: string | undefined): number {
   if (!key) return 0;
   try {
@@ -40,10 +28,16 @@ export function useTimer(options: {
   paused: boolean;
   persistKey?: string;
   restorePersisted?: boolean;
+  persistenceReady?: boolean;
 }): TimerController {
-  const { paused, persistKey, restorePersisted = true } = options;
+  const {
+    paused,
+    persistKey,
+    restorePersisted = true,
+    persistenceReady = true,
+  } = options;
   const [initialElapsed] = useState(() =>
-    restorePersisted ? readPersistedTime(persistKey) : 0);
+    persistenceReady && restorePersisted ? readPersistedTime(persistKey) : 0);
   const [elapsed, setElapsed] = useState(initialElapsed);
   const [running, setRunning] = useState(false);
   const stateRef = useRef<{ accumulated: number; resumedAt: number | null }>(
@@ -57,21 +51,38 @@ export function useTimer(options: {
     };
   }
   const timeoutRef = useRef<number | undefined>(undefined);
-
-  useEffect(() => {
-    if (restorePersisted || !persistKey) return;
-    try {
-      sessionStorage.removeItem(persistKey);
-    } catch {
-      // sessionStorage may be unavailable; silently ignore.
-    }
-  }, [persistKey, restorePersisted]);
+  const persistenceDecisionRef = useRef<string | undefined>(
+    persistenceReady && persistKey && restorePersisted
+      ? `${persistKey}:restore`
+      : undefined,
+  );
 
   const stopTick = useCallback(() => {
     if (timeoutRef.current === undefined) return;
     window.clearTimeout(timeoutRef.current);
     timeoutRef.current = undefined;
   }, []);
+
+  useEffect(() => {
+    if (!persistenceReady || !persistKey) return;
+    const decision = `${persistKey}:${restorePersisted ? "restore" : "clear"}`;
+    if (persistenceDecisionRef.current === decision) return;
+
+    stopTick();
+    const restored = restorePersisted ? readPersistedTime(persistKey) : 0;
+    stateRef.current.accumulated = restored;
+    stateRef.current.resumedAt = null;
+    setElapsed(restored);
+    setRunning(false);
+    persistenceDecisionRef.current = decision;
+
+    if (restorePersisted) return;
+    try {
+      sessionStorage.removeItem(persistKey);
+    } catch {
+      // sessionStorage may be unavailable; silently ignore.
+    }
+  }, [persistKey, persistenceReady, restorePersisted, stopTick]);
 
   function startTick() {
     const state = stateRef.current;
@@ -104,7 +115,7 @@ export function useTimer(options: {
   }
 
   function persistAccumulated() {
-    if (!persistKey) return;
+    if (!persistenceReady || !persistKey) return;
     try {
       sessionStorage.setItem(
         persistKey,
@@ -117,6 +128,11 @@ export function useTimer(options: {
 
   useEffect(() => {
     const state = stateRef.current;
+
+    if (!persistenceReady) {
+      stopTick();
+      return stopTick;
+    }
 
     if (paused) {
       if (state.resumedAt !== null) {
@@ -139,12 +155,13 @@ export function useTimer(options: {
 
     return stopTick;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paused]);
+  }, [paused, persistenceReady]);
 
   useEffect(() => {
     const state = stateRef.current;
 
     function handleVisibility() {
+      if (!persistenceReady) return;
       if (document.hidden && state.resumedAt !== null) {
         state.accumulated = calculateElapsedTime(
           state.accumulated,
@@ -166,7 +183,7 @@ export function useTimer(options: {
     document.addEventListener("visibilitychange", handleVisibility);
     return () => document.removeEventListener("visibilitychange", handleVisibility);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paused]);
+  }, [paused, persistenceReady]);
 
   useEffect(() => () => {
     const state = stateRef.current;
@@ -179,13 +196,13 @@ export function useTimer(options: {
       state.resumedAt = null;
     }
     stopTick();
-    if (!persistKey) return;
+    if (!persistenceReady || !persistKey) return;
     try {
       sessionStorage.setItem(persistKey, String(state.accumulated));
     } catch {
       // sessionStorage may be unavailable; silently ignore.
     }
-  }, [persistKey, stopTick]);
+  }, [persistKey, persistenceReady, stopTick]);
 
   const reset = useCallback(() => {
     stopTick();

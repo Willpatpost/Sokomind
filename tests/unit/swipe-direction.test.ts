@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { resolveSwipeDirection } from "../../src/features/game/use-swipe-controls.ts";
+import { resolveSwipeDirection } from "../../src/features/game/swipe-direction.ts";
 
 test("returns null when delta is below threshold", () => {
   assert.equal(resolveSwipeDirection(10, 5, 30), null);

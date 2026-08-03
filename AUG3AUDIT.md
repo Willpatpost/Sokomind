@@ -1,4 +1,4 @@
-# Sokomind3 Full Codebase Audit — 2026-08-03
+# Sokomind Full Codebase Audit — 2026-08-03
 
 Comprehensive issue catalog produced by five parallel deep-review passes covering
 project configuration, core engine, solver subsystem, UI/features layer, and test
@@ -1146,30 +1146,39 @@ without external documentation.
 
 ## IMPLEMENTATION STATUS (2026-08-03, updated after Sprint 3)
 
-**Total: 35 of 35 issues resolved** (19 FIXED Sprint 1, 8 FIXED Sprint 2, 8 FIXED Sprint 3, 2 N/A)
-**Remaining: 3 deferred issues** (C3, C4, C6 — large solver architecture efforts)
-**Test suite: 510 tests, 77 suites, 0 failures** (up from 404 tests pre-Sprint 3)
+All implementation-scoped findings in the sprint tables below have a closed
+`FIXED` or `N/A` disposition. The entry under **Remaining (Deferred)** and
+the F5 catalog-data roadmap are separate research/data items and are not
+included in a
+"resolved" denominator. Test counts recorded in this historical section are
+snapshots; the current verification evidence lives in `AUDIT-TRACKER.md`.
 
 ### Fixes Applied
 
 | ID | Issue | Status | Notes |
 |---|---|---|---|
 | **A1** | ConfirmDialog hardcoded ARIA IDs | **FIXED** | Replaced with `useId()` |
-| **A2** | ExperienceControls dialog semantics | **FIXED** | Added `aria-modal="true"` (role="dialog" and aria-labelledby were already present) |
+| **A2** | ExperienceControls dialog semantics | **FIXED** | Migrated settings to the shared native `Modal`, including focus containment, Escape/cancel handling, and focus return |
 | **A3** | Solver metrics aria-live | **FIXED** | Added visually-hidden `aria-live="polite"` region for state transitions |
-| **B1** | Unsafe JSON casts | **FIXED** | Added `validatePuzzle()` filter in puzzles.ts, structural validation in puzzle-loader.ts, `isValidMetadataTuple` guard in puzzle-metadata.ts |
+| **B1** | Unsafe JSON casts | **FIXED** | Canonical/imported catalogs, generated metadata, and lazy shards now fail fast on invalid or duplicate records instead of silently filtering data |
 | **B2** | O(B) solved-check on non-push moves | **FIXED** | Non-push moves propagate `snapshot.solved` directly |
 | **B3** | String-slice undo assumption | **FIXED** | Module-load assertion verifies ACTION_CODES are single characters |
 | **B4** | canonicalBoxSignature precondition | **FIXED** | Debug assertion under `import.meta.env?.DEV` (optional chaining for Node.js compat) |
 | **B5** | Zobrist table out-of-range fallback | **FIXED** | Debug bounds checks under `import.meta.env?.DEV` (optional chaining for Node.js compat) |
 | **B6** | document.title outside useEffect | **FIXED** | Was already in useEffect; added cleanup to restore previous title on unmount |
 | **C2** | IDA* transposition table per-iteration | **FIXED** | Table cleared per-iteration (persistent approach caused incorrect pruning); memory-budget guard retained |
+| **C4** | A* retained-node memory | **N/A** | Accepted nodes are deliberately retained for exact path reconstruction, measured conservatively, and rejected before insertion when the memory ceiling would be exceeded; no target regression demonstrates a need for the proposed high-risk two-arena rewrite |
+| **C6** | Bidirectional record retention | **N/A** | Both lanes are state/frontier bounded, worker and coordinator bytes count toward the enforced memory limit, and phase-local maps are released on finish; Bloom-filter eviction would make meeting/path reconstruction incomplete |
+| **C7** | Hungarian cost on large label sets | **N/A** | The assignment cache bounds repeat work, the catalog maximum remains within the measured solver gates, and no target profile shows this as a bottleneck |
 | **D2** | BroadcastChannel feature detection | **N/A** | BroadcastChannel is not used in the codebase; cross-tab sync uses StorageEvent exclusively |
+| **D3** | localStorage capacity observation | **FIXED** | Session and optimal records have an IndexedDB secondary copy with atomic merge/reset fencing; localStorage remains the small synchronous tier |
 | **E2** | No Suspense loading fallback | **N/A** | Already implemented — project has `<LoadingFallback />` component |
 | **E4** | Dark theme CSS duplication | **FIXED** | Refactored 10 CSS module files to use CSS custom properties; dark theme blocks reduced to variable overrides only |
+| **E6** | Provider hierarchy depth | **N/A** | The audit identified this as a working architectural observation with no measured render or correctness defect |
 | **F1** | Catalog type duplication | **FIXED** | Created `catalog-types.ts` with shared `PuzzleDifficulty`, `CollectionInfo`, `SOKOMIND_ORIGINALS`, `DIFFICULTY_ORDER` |
 | **F2** | Puzzle-loader linear scan | **FIXED** | Changed shard cache to `ReadonlyMap<string, PuzzleDefinition>` for O(1) lookups |
 | **F3** | Labeled-box regex fragility | **FIXED** | Replaced regex with logic mirroring `isDedicatedBox` from puzzle.ts |
+| **F5** | Puzzle diversity skew | **N/A** | This is external catalog/data curation, tracked as P1/P2/P6 in `REMAINING-AUDIT-ITEMS.md`, not an implementation defect |
 | **G1** | No deadlock detection in core | **FIXED** | Added optional `DeadlockDetector` callback to `stepSnapshot`, exported from core |
 | **G4** | Replay dead code | **FIXED** | Removed unreachable `if (!direction) continue` guard |
 | **I2** | WASM engine documentation | **FIXED** | Added provenance comment (not WASM — concatenated JS bundle from `./source/` via `scripts/prepare-sokomind-engine.mjs`) |
@@ -1180,11 +1189,11 @@ without external documentation.
 |---|---|---|---|
 | **C1** | IDA* heuristic gap | **FIXED** | Added `minimumWalkToFirstPush()` Manhattan distance lower bound in `heuristic.ts`; split heuristic into `hPush + hWalk` components in `ida-star.ts` — admissible augmentation tightens bound without breaking optimality |
 | **C5** | Classic solver cancellation watchdog | **FIXED** | Added 5-second main-thread watchdog timer in `worker-client.ts` with `transport.terminate()` as nuclear fallback; `#armCancelWatchdog`, `#resetCancelWatchdog`, `#clearCancelWatchdog` methods |
-| **D1** | IndexedDB fallback for storage | **FIXED** | Created `src/shared/idb-storage.ts` (79-line zero-dependency IDB wrapper with graceful degradation); dual-writes added to `optimal-cache.ts` and `session-persistence.ts` with async IDB hydration |
+| **D1** | IndexedDB fallback for storage | **FIXED** | IndexedDB operations wait for transaction completion; Play is wired to session hydration before autosave; optimal records merge atomically; full reset reports real IDB failures |
 | **E1a** | Decompose use-play-controller | **FIXED** | Reduced 489→355 lines; extracted `use-sharing.ts` (57 lines), `use-solver-playback.ts` (149 lines), `use-puzzle-navigation.ts` (54 lines) |
 | **E1b** | Decompose PuzzleSelectorPage | **FIXED** | Reduced 624→99 lines; extracted `DifficultyGrid.tsx`, `CollectionGrid.tsx`, `PuzzleListView.tsx`, `PuzzleFilters.tsx`, `Pagination.tsx`, `use-puzzle-list-state.ts`, `selector-constants.ts` |
 | **E1c** | Decompose useSolverController | **FIXED** | Reduced 568→164 lines; extracted `solver-internals.ts`, `use-solver-log.ts`, `use-solver-worker.ts`, `use-solver-progress.ts` |
-| **E3** | Service worker toast notification | **FIXED** | Replaced `window.confirm()` with non-blocking toast; created `sw-update-store.ts` (external store), `UpdateNotification.tsx` + `.module.css`; auto-dismissible banner alongside `PersistenceWarning` |
+| **E3** | Service worker toast notification | **FIXED** | The non-blocking notification retains the waiting worker; Reload posts `SKIP_WAITING` and reloads once on `controllerchange` |
 | **E5** | Board cell-level memoization | **FIXED** | Extracted memoized `StaticCell`, `TrailDot`, `BoxPiece`, `KeeperPiece` sub-components; wrapped `PieceSlot` with `memo()` |
 
 ### Sprint 3 Fixes Applied
@@ -1193,23 +1202,25 @@ without external documentation.
 |---|---|---|---|
 | **B4/B5** | import.meta.env.DEV crash in Node test runner | **FIXED** | Changed to `import.meta.env?.DEV` (optional chaining); fixed 14 test failures |
 | **C2** | IDA* transposition table bug | **FIXED** | Reverted to per-iteration clearing — persistent approach caused incorrect pruning (states from lower f-limit blocked re-exploration at higher f-limits) |
-| **F4** | Catalog Vite coupling | **FIXED** | Added `configurePuzzleLoader()`/`resetPuzzleLoader()` injection API; Vite APIs isolated into defaults |
+| **F4** | Catalog Vite coupling | **FIXED** | The loader is runtime-agnostic and requires explicit configuration; `import.meta.glob` and Vite environment access live only in the browser composition module |
 | **G2** | Replay throws on blocked actions | **FIXED** | Added `{ strict: false }` option returning `{ session, applied, skipped }`; overload signatures for backward compat |
 | **G3** | positionKey string allocation | **FIXED** | Added `@deprecated` JSDoc annotation (has 4 active callers; cannot remove) |
 | **H3** | Sokomind engine integration tests | **FIXED** | 3 new end-to-end tests solving real puzzles with solution verification |
 | **H4** | Procedural audio unit tests | **FIXED** | 44 new tests: all 8 cue types, construction/disposal, music generator, gain routing, visibility handling |
 | **H5** | globalThis.postMessage patching | **FIXED** | Replaced try/finally with `t.after()` cleanup; narrowed type with `"after" in t` guard |
 | **H6** | Hint worker correctness tests | **FIXED** | 3 new tests: valid direction, legal move via stepSnapshot, full solution replay to solved state |
+| **H1** | Visual regression coverage | **FIXED** | Cross-browser visual-layout guards cover light/dark Play, completion, solver, editor, viewport containment, and overflow; Playwright retains screenshots/traces on failure without brittle cross-OS font pixel baselines |
+| **H2** | Touch gesture E2E coverage | **FIXED** | Mobile Chrome and Safari dispatch a real touchstart/move/end swipe through the board event boundary and assert the keeper move |
+| **H7** | Exact deterministic assertions | **N/A** | Exact Huge counters are an intentional correctness contract, paired with upper bounds and a documented update procedure |
 | **H8** | Timer lifecycle tests | **FIXED** | 40 new tests: state machine, drift correction, pause/resume cycles, display pipeline |
 | **H9** | Editor boundary tests | **FIXED** | 16 new tests: MIN_SIZE/MAX_SIZE clamping, corner cases, resize, validation edge cases |
+| **I1** | Audit S3 status | **FIXED** | Nested generated-engine command/result validation and an independent coverage floor close the unchecked boundary; dated evidence is kept in `AUDIT-TRACKER.md` |
 
-### Remaining (Deferred — Large Solver Architecture Efforts)
+### Remaining (Deferred — Solver Research)
 
 | ID | Issue | Reason Deferred |
 |---|---|---|
-| **C3** | Missing tunnel/goal/corral macros | Already tracked in REMAINING-AUDIT-ITEMS.md (Q8), 7-9 day effort |
-| **C4** | A* node retention for reconstruction | Requires solver architecture change |
-| **C6** | Bidirectional lane memory retention | Low severity, complex optimization |
+| **C3** | Classic-solver tunnel/goal/corral parity | Production Sokomind already has tunnel, goal-room, and corral machinery; equivalent classic A*/IDA* research remains tracked as Q8 in REMAINING-AUDIT-ITEMS.md |
 
 ### Files Modified
 

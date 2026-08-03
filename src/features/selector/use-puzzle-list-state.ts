@@ -39,6 +39,7 @@ export function usePuzzleListState({
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const pageStatusRef = useRef<HTMLParagraphElement>(null);
   const previousPageNumberRef = useRef(pageNumber);
+  const preserveFilterFocusRef = useRef(false);
 
   useEffect(() => () => clearTimeout(debounceRef.current), []);
 
@@ -109,7 +110,10 @@ export function usePuzzleListState({
   );
 
   const resetPagination = useCallback(() => {
-    if (pageNumber !== undefined) navigate(baseListHash, { replace: true });
+    if (pageNumber !== undefined) {
+      preserveFilterFocusRef.current = true;
+      navigate(baseListHash, { replace: true });
+    }
   }, [baseListHash, navigate, pageNumber]);
 
   const handleSearchChange = useCallback(
@@ -147,6 +151,10 @@ export function usePuzzleListState({
   useEffect(() => {
     if (previousPageNumberRef.current === pageNumber) return;
     previousPageNumberRef.current = pageNumber;
+    if (preserveFilterFocusRef.current) {
+      preserveFilterFocusRef.current = false;
+      return;
+    }
     pageStatusRef.current?.focus();
   }, [pageNumber]);
 

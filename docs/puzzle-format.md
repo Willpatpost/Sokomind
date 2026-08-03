@@ -53,6 +53,14 @@ issues without throwing. Call `parsePuzzle()` only after validation or handle
 `PuzzleValidationError`. For row-only imports, use `validatePuzzleRows()` and
 `parsePuzzleRows()`.
 
+Catalog ingestion is deliberately fail-fast. Canonical definitions, imported
+definitions, generated metadata tuples, and lazily loaded shard contents are
+validated before they are frozen or indexed. Invalid or duplicate IDs produce
+an error that names the source and item; they are never silently filtered out.
+The puzzle loader has no module-load dependency on Vite and must be configured
+explicitly by the browser composition root before the app renders. This keeps
+catalog validation usable from Node tests and other non-Vite consumers.
+
 ## Example
 
 ```ts

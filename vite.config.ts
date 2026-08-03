@@ -49,7 +49,12 @@ function metadataPlugin(publicSiteUrl: string, isProd: boolean): Plugin {
                 content: [
                   "default-src 'self'",
                   `script-src ${scriptSrc}`,
+                  // Keep the CSP2 fallback for older browsers while narrowing
+                  // modern CSP3 enforcement to external style elements and
+                  // the React style attributes used for dynamic board values.
                   "style-src 'self' 'unsafe-inline'",
+                  "style-src-elem 'self'",
+                  "style-src-attr 'unsafe-inline'",
                   "img-src 'self' data:",
                   "connect-src 'self'",
                   "worker-src 'self'",
@@ -69,12 +74,12 @@ function metadataPlugin(publicSiteUrl: string, isProd: boolean): Plugin {
 
 function assetManifestPlugin(): Plugin {
   const serviceWorkerRevisionToken = "__SOKOMIND_BUILD_REVISION__";
-  const revisionInputs = [
-    "index.html",
-    "favicon.svg",
-    "icon-192.png",
-    "icon-512.png",
-    "manifest.webmanifest",
+  const shellResources = [
+    ["./", "index.html"],
+    ["./favicon.svg", "favicon.svg"],
+    ["./icon-192.png", "icon-192.png"],
+    ["./icon-512.png", "icon-512.png"],
+    ["./manifest.webmanifest", "manifest.webmanifest"],
   ];
   const runtimeOnlyAssetPrefixes = [
     "ProgressDialog-",
@@ -98,12 +103,16 @@ function assetManifestPlugin(): Plugin {
         .filter((file) => runtimeOnlyAssetPrefixes.some((prefix) =>
           file.startsWith(prefix)))
         .map((file) => `./assets/${file}`);
-      const manifest = { version: 1, precache, runtime };
-      const serializedManifest = JSON.stringify(manifest, null, 2);
-      await fs.writeFile(
-        path.join("dist", "asset-manifest.json"),
-        serializedManifest,
-      );
+      const shell = await Promise.all(shellResources.map(
+        async ([resourcePath, relativePath]) => ({
+          path: resourcePath,
+          sha256: crypto.createHash("sha256")
+            .update(await fs.readFile(path.join("dist", relativePath)))
+            .digest("hex"),
+        }),
+      ));
+      const manifestPayload = { version: 2, shell, precache, runtime };
+      const serializedManifestPayload = JSON.stringify(manifestPayload, null, 2);
 
       const workerPath = path.join("dist", "sw.js");
       const workerTemplate = await fs.readFile(workerPath, "utf8");
@@ -112,13 +121,13 @@ function assetManifestPlugin(): Plugin {
       }
 
       const revisionHash = crypto.createHash("sha256");
-      revisionHash.update(serializedManifest);
+      revisionHash.update(serializedManifestPayload);
       revisionHash.update(workerTemplate);
-      for (const relativePath of revisionInputs) {
-        revisionHash.update(relativePath);
-        revisionHash.update(await fs.readFile(path.join("dist", relativePath)));
-      }
       const revision = revisionHash.digest("hex").slice(0, 16);
+      await fs.writeFile(
+        path.join("dist", "asset-manifest.json"),
+        JSON.stringify({ ...manifestPayload, revision }, null, 2),
+      );
       await fs.writeFile(
         workerPath,
         workerTemplate.replaceAll(serviceWorkerRevisionToken, revision),

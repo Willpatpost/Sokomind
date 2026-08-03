@@ -6,18 +6,25 @@ import {
   type PuzzleDefinition,
 } from "../core/index.ts";
 import {
+  DOCUMENT_APP_RESET_GENERATION,
   LEGACY_STORAGE_KEYS,
   STORAGE_KEYS,
+  documentCanPersistAppData,
   readStoredValue,
   removeStoredValue,
   writeStoredValue,
   type StorageMutationResult,
 } from "./storage.ts";
 import { trackPersistenceResult } from "./persistence-health.ts";
-import { idbGet, idbSet, idbRemove } from "./idb-storage.ts";
+import {
+  idbFencedRemove,
+  idbFencedGet,
+  idbFencedUpdate,
+} from "./idb-storage.ts";
 
 export const SAVED_SESSION_VERSION = 1 as const;
 export const MAX_SAVED_ACTIONS = 100_000;
+export const MAX_SAVED_SESSION_FUTURE_SKEW_MS = 5 * 60 * 1_000;
 
 export interface SavedSession {
   readonly version: typeof SAVED_SESSION_VERSION;
@@ -38,9 +45,32 @@ export type PuzzleResolver = (
 export type PuzzleIdPredicate = (puzzleId: string) => boolean;
 
 const IDB_KEY = STORAGE_KEYS.session;
+let lastSavedAtMs = 0;
+
+function nextSavedSessionTimestamp(): string {
+  lastSavedAtMs = Math.max(Date.now(), lastSavedAtMs + 1);
+  return new Date(lastSavedAtMs).toISOString();
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object";
+}
+
+function isCanonicalTimestamp(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString() === value;
+}
+
+function savedAt(saved: SavedSession): number {
+  return Date.parse(saved.updatedAt);
+}
+
+function isImplausiblyFuture(
+  saved: SavedSession,
+  referenceTime = Date.now(),
+): boolean {
+  return savedAt(saved) > referenceTime + MAX_SAVED_SESSION_FUTURE_SKEW_MS;
 }
 
 export function parseSavedSession(serialized: string | null): SavedSession | null {
@@ -56,7 +86,7 @@ export function parseSavedSession(serialized: string | null): SavedSession | nul
       value.puzzleId.length > 100 ||
       !isActionLog(value.actionLog) ||
       value.actionLog.length > MAX_SAVED_ACTIONS ||
-      typeof value.updatedAt !== "string"
+      !isCanonicalTimestamp(value.updatedAt)
     ) {
       return null;
     }
@@ -81,7 +111,7 @@ function parseSavedSessionFromUnknown(value: unknown): SavedSession | null {
     value.puzzleId.length > 100 ||
     !isActionLog(value.actionLog) ||
     value.actionLog.length > MAX_SAVED_ACTIONS ||
-    typeof value.updatedAt !== "string"
+    !isCanonicalTimestamp(value.updatedAt)
   ) {
     return null;
   }
@@ -118,7 +148,7 @@ export function loadSession(
   resolvePuzzle: PuzzleResolver,
 ): RestoredSession | null {
   const stored = parseSavedSession(readStoredValue(STORAGE_KEYS.session));
-  if (stored) {
+  if (stored && !isImplausiblyFuture(stored)) {
     const session = restoreSession(stored, resolvePuzzle);
     if (session) {
       return Object.freeze({
@@ -153,16 +183,24 @@ export async function hydrateSessionFromIDB(
   current: RestoredSession | null,
 ): Promise<RestoredSession | null> {
   try {
-    const idbData = await idbGet<unknown>(IDB_KEY);
+    const idbData = await idbFencedGet<unknown>(
+      IDB_KEY,
+      DOCUMENT_APP_RESET_GENERATION,
+    );
     if (!idbData) return current;
 
     const idbSaved = parseSavedSessionFromUnknown(idbData);
     if (!idbSaved) return current;
+    if (isImplausiblyFuture(idbSaved)) return current;
 
     // If we already have a localStorage session, prefer whichever is newer.
     if (current) {
       const lsStored = parseSavedSession(readStoredValue(STORAGE_KEYS.session));
-      if (lsStored && lsStored.updatedAt >= idbSaved.updatedAt) {
+      if (
+        lsStored &&
+        !isImplausiblyFuture(lsStored) &&
+        savedAt(lsStored) >= savedAt(idbSaved)
+      ) {
         return current;
       }
     }
@@ -187,7 +225,13 @@ export function loadSessionPuzzleId(
   isKnownPuzzleId: PuzzleIdPredicate,
 ): string | null {
   const stored = parseSavedSession(readStoredValue(STORAGE_KEYS.session));
-  if (stored && isKnownPuzzleId(stored.puzzleId)) return stored.puzzleId;
+  if (
+    stored &&
+    !isImplausiblyFuture(stored) &&
+    isKnownPuzzleId(stored.puzzleId)
+  ) {
+    return stored.puzzleId;
+  }
 
   const legacyPuzzleId = readStoredValue(LEGACY_STORAGE_KEYS.currentPuzzle);
   return legacyPuzzleId && isKnownPuzzleId(legacyPuzzleId)
@@ -200,26 +244,42 @@ export function loadSessionPuzzleId(
  * reload) and IndexedDB (for quota resilience with large action logs).
  */
 export function saveSession(session: GameSession): StorageMutationResult {
+  if (!documentCanPersistAppData()) {
+    return { ok: true, key: STORAGE_KEYS.session, operation: "write" };
+  }
+
   const saved: SavedSession = {
     version: SAVED_SESSION_VERSION,
     puzzleId: session.puzzle.id,
     actionLog: session.actionLog,
-    updatedAt: new Date().toISOString(),
+    updatedAt: nextSavedSessionTimestamp(),
   };
 
   const result = trackPersistenceResult(
     writeStoredValue(STORAGE_KEYS.session, JSON.stringify(saved)),
   );
 
-  // Background-persist to IndexedDB; fire-and-forget.
-  idbSet(IDB_KEY, saved).catch(() => {});
+  // Keep the newest completed write when rapid moves schedule overlapping IDB
+  // transactions on different browser connections.
+  void idbFencedUpdate(IDB_KEY, DOCUMENT_APP_RESET_GENERATION, (current) => {
+    const stored = parseSavedSessionFromUnknown(current);
+    return stored &&
+      !isImplausiblyFuture(stored, savedAt(saved)) &&
+      savedAt(stored) > savedAt(saved)
+      ? stored
+      : saved;
+  }).catch(() => {});
 
   return result;
 }
 
 export function clearSession(): StorageMutationResult {
+  if (!documentCanPersistAppData()) {
+    return { ok: true, key: STORAGE_KEYS.session, operation: "remove" };
+  }
+
   // Background-clear from IndexedDB; fire-and-forget.
-  idbRemove(IDB_KEY).catch(() => {});
+  void idbFencedRemove(IDB_KEY, DOCUMENT_APP_RESET_GENERATION).catch(() => {});
 
   return trackPersistenceResult(removeStoredValue(STORAGE_KEYS.session));
 }

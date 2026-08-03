@@ -1,6 +1,6 @@
 # Sokomind Codebase Audit Tracker
 
-Last updated: 2026-08-02
+Last updated: 2026-08-03
 
 This is the active tracker for the repository architecture, correctness, performance, deployment, testing, accessibility, and maintenance audit. Update an item's status only after its acceptance checks pass.
 
@@ -59,7 +59,7 @@ At the start of this audit:
 | P5 | Medium | `FIXED` | Hint and full-solver runs can contend for resources |
 | S1 | High | `FIXED` | IDA* does not account for or enforce its full memory budget |
 | S2 | Medium | `FIXED` | Solver registration and execution validate different capabilities |
-| S3 | Medium | `IN PROGRESS` | The generated classic solver is a large weakly checked boundary |
+| S3 | Medium | `FIXED` | The generated classic solver is a large weakly checked boundary |
 | T1 | Medium | `FIXED` | Performance regressions do not reliably block deployment |
 | T2 | Medium | `FIXED` | Generated-engine synchronization is not checked before unit tests |
 | T3 | Medium | `FIXED` | Coverage and delivery bundle budgets are not enforced |
@@ -74,11 +74,11 @@ At the start of this audit:
 | IDs | Outcome |
 |---|---|
 | C1-C2 | Route decoding now fails closed, recovery reloads without deleting data, confirmed reset clears only exact owned keys, and the core game transition is terminal after solve. |
-| C3-C4 | Storage operations return typed failure reasons; a deduplicated warning reports persistence health; versioned safe-integer generation/revision envelopes, merge-before-write, storage-event reconciliation, and a full-reset marker prevent lost updates and post-reset resurrection across active tabs. |
-| C5-C7 | Play controllers remount by puzzle/action identity, timer restoration requires a matching saved attempt, imported progress is catalog-normalized with safe counter/timestamp invariants, and Continue uses saved session -> first unsolved -> first puzzle precedence. |
+| C3-C4 | Storage operations return typed failure reasons; a deduplicated warning reports persistence health; versioned safe-integer generation/revision envelopes, merge-before-write, storage-event reconciliation, and an atomic IndexedDB reset-generation fence prevent lost updates and post-reset resurrection across active tabs. Full reset advances and clears the durable tier first, then clears local keys and publishes its marker without an intervening asynchronous window. |
+| C5-C7 | Play controllers remount by puzzle/action identity. Elapsed time remains puzzle-keyed rather than action-log-bound: it is restored only after a non-empty saved session for that puzzle has been accepted (including an IndexedDB-only session), and is cleared for fresh/shared attempts. Imported progress is catalog-normalized with safe counter/timestamp invariants; Continue uses saved session -> first unsolved -> first puzzle precedence. |
 | D1 | Public metadata derives from `PUBLIC_SITE_URL`/repository metadata, preview paths are configurable, and the sole product name is `Sokomind`. An arbitrary `/nested-audit/` mount passed its browser test. |
 | D2 | The service worker installs an immutable known-good shell and never replaces it with an arbitrary navigation response. |
-| D3 | Build-derived revisions, staged-cache validation, awaited writes, runtime fill, and old-generation pruning are enforced. Dialogs, workers, and 44 board shards remain runtime-loaded; browser tests prove on-demand fill, offline reuse, navigation-404 safety, and distinct worker-generation replacement. |
+| D3 | Each worker and manifest share a build-derived revision, and the manifest binds every mutable shell response with SHA-256. Cross-generation manifests or shell bytes fail installation without pruning the known-good cache. Awaited writes, runtime fill, scope-qualified pruning, and retained-waiting-worker activation are enforced; dialogs, workers, and 44 board shards remain runtime-loaded. |
 | D4 | The ineffective meta-delivered `frame-ancestors` directive was removed and the GitHub Pages response-header limitation is documented. |
 | P1 | Timer updates align to visible second boundaries while exact elapsed time remains in refs/persistence; puzzle lookup now uses a precomputed ID index. |
 | P2-P3 | A generated metadata index keeps Home and the selector independent of board payloads. Play fetches one of 44 bounded board shards, while 1,000-room collections expose URL-addressable 50-row pages with focus and filter reset behavior. |
@@ -86,13 +86,13 @@ At the start of this audit:
 | P5 | Hint workers have startup/result watchdogs plus error/message-error handling, cancellation terminates ownership deterministically, and opening the full solver synchronously cancels hints before allocating its worker. |
 | S1 | IDA* now estimates static and dynamic retained memory, enforces the ceiling before and during search, and reports category/current/peak telemetry. |
 | S2 | One capability validator now covers registration, discovery, and pre-dispatch compatibility with typed failure codes and invalid-adapter isolation. |
-| S3 | Shared command/result envelopes, runtime guards in both directions, malformed-message failure behavior, declaration synchronization, and a separate generated-engine coverage floor are complete. Exact nested payload extraction and incremental module conversion remain ongoing architecture work. |
-| T1-T2 | Multi-puzzle and Huge performance tests are blocking CI gates; Huge bounds search/rewrite/total time; generated-engine synchronization runs before unit tests. |
-| T3 | Independent typed/generated coverage floors and per-target gzip budgets are enforced. Home closure, workers, largest asset, and each board shard have readable non-regression failures. |
-| T4 | Actions are pinned to reviewed commit SHAs, deployment explicitly requires the default branch, and Dependabot groups compatible families while reserving every major update for deliberate review. |
+| S3 | Shared command/result envelopes, nested command-state and result-record validation, bounded malformed-message failures, declaration synchronization, and a separate generated-engine coverage floor are complete. Incremental generated-module conversion remains optional architecture work, not an unchecked trust boundary. |
+| T1-T2 | Multi-puzzle and Huge performance tests are blocking CI gates; every synchronous case runs in a killable child process with a parent deadline; Huge also bounds search/rewrite/total time; generated-engine synchronization runs before unit tests. |
+| T3 | All-source typed, focused typed, and generated-engine coverage floors plus per-target gzip budgets are enforced. Untested TS/TSX files count as zero in the all-source gate; cold-route eager dependency closures, associated styles, the first Play shard, workers, largest asset, and every board shard have readable non-regression failures. |
+| T4 | Actions are pinned to reviewed commit SHAs, deploy/upload steps require the full default-branch ref, the build has only the Pages read permission needed for configuration, and Dependabot groups compatible families while reserving every major update for deliberate review. |
 | A1 | Route identity includes puzzle/collection/action state; new route headings receive focus and are announced, including history navigation. |
 | M1 | Stale puzzle-count copy and audit links were corrected; the follow-up audit uses the canonical name; tracked content and filenames contain no iteration-specific product names. |
-| X1/R1 | Licensing remains excluded. Q8 and P1/P2/P6 in `REMAINING-AUDIT-ITEMS.md` remain deferred and that file is unchanged. |
+| X1/R1 | Licensing remains excluded. Q8 and P1/P2/P6 in `REMAINING-AUDIT-ITEMS.md` remain deliberately deferred roadmap work; that document distinguishes classic-solver parity from production-engine capabilities. |
 
 ## 2026-08-02 follow-up review
 
@@ -194,7 +194,10 @@ At the start of this audit:
 
 **Fix:** Generate a build revision, precache only the shell/critical assets, runtime-cache immutable hashed assets, prune obsolete entries, await cache writes through the event lifetime, and add a service-worker-enabled Playwright project.
 
-**Acceptance:** A two-build upgrade removes obsolete hashed assets, optional dialog/worker chunks are not downloaded at install, offline Home and direct-Play refreshes work, and update tests pass.
+**Acceptance:** Cross-generation manifests or mutable shell responses are
+rejected without removing the active cache; a successful paired-generation
+upgrade removes obsolete hashed assets; optional dialog/worker chunks are not
+downloaded at install; offline Home and direct-Play refreshes work.
 
 ### D4 - Framing policy
 
@@ -268,9 +271,15 @@ At the start of this audit:
 
 **Evidence:** The largest solver implementation is concatenated from classic scripts, excluded from normal linting, exposed through broad record types, and lightly covered relative to the typed core.
 
-**Fix:** Immediately add exact generated contracts, synchronization checks, targeted `checkJs`/linting where safe, and a separate coverage floor. Incrementally extract explicit modules rather than attempting a single rewrite.
+**Fix:** Add explicit worker envelopes and runtime validation for required nested
+state, stable prepared-board metadata, record batches, counters, telemetry, and
+search results. Keep synchronization checks and a separate generated-engine
+coverage floor; incrementally extract modules rather than attempting a single
+rewrite.
 
-**Acceptance:** Generated and source files cannot drift; request/result types are exact; the engine's enforced coverage increases without changing benchmark counters.
+**Acceptance:** Generated and source files cannot drift; malformed nested
+commands/results fail at the boundary without dispatch; enforced coverage
+cannot fall; benchmark routes and counters remain unchanged.
 
 The new search techniques in Q8 remain deferred; this item only strengthens the existing engine boundary and controls.
 
@@ -280,9 +289,13 @@ The new search techniques in Q8 remain deferred; this item only strengthens the 
 
 **Evidence:** The Huge benchmark is allowed to fail without blocking deployment and bounds only part of its total work. The inexpensive multi-puzzle performance suite is not a deployment gate.
 
-**Fix:** Remove the soft failure, bound initial, rewrite, and total duration separately, run the multi-puzzle suite, and retain exact replay/counter assertions.
+**Fix:** Remove the soft failure, bound initial, rewrite, and total duration
+separately, run the multi-puzzle suite, retain exact replay/counter assertions,
+and place synchronous cases in child processes the parent can terminate.
 
-**Acceptance:** A performance or determinism regression fails CI and prevents deployment; documented thresholds have reasonable variance headroom.
+**Acceptance:** A performance, determinism, or non-yielding hang fails CI within
+a hard wall-clock deadline and prevents deployment; documented thresholds have
+reasonable variance headroom.
 
 ### T2 - Generated-engine synchronization
 
@@ -296,7 +309,10 @@ The new search techniques in Q8 remain deferred; this item only strengthens the 
 
 **Evidence:** Coverage has no threshold, the generated engine has low line coverage, and static-build tests verify existence rather than delivery size.
 
-**Fix:** Establish non-decreasing coverage floors for typed and generated code separately. Add gzip budgets for Home, Play, worker bundles, and the largest individual chunk.
+**Fix:** Count every TS/TSX source file—including files no unit test imports—in
+an all-source gate; retain separate higher focused typed and generated-engine
+floors. Add gzip budgets for Home, Play, worker bundles, and the largest
+individual chunk.
 
 **Acceptance:** Coverage or bundle regressions fail CI with a readable per-target report.
 
@@ -336,7 +352,9 @@ No licensing, attribution, or third-party puzzle provenance changes will be made
 
 The following remain exclusively in `REMAINING-AUDIT-ITEMS.md`:
 
-- Q8: tunnel macros, goal macros, and corral pruning.
+- Q8: classic A*/IDA* tunnel/goal/corral parity and further production-engine
+  research (the production Sokomind engine already implements topology-aware
+  tunnel, goal-room, and corral machinery).
 - P1: difficulty skew and external collection sourcing.
 - P2: Boxoban structural homogeneity and corpus rebalancing.
 - P6: catalog-scale labeled-box conversion/generation.
@@ -345,12 +363,14 @@ Immediate work may add small labeled regression fixtures, capability enforcement
 
 ## Validation log
 
-Add dated evidence here whenever an item changes to `FIXED`.
+Add dated evidence here whenever an item changes to `FIXED`. Status language in
+an earlier row describes that dated checkpoint; a later row may explicitly
+supersede it after the remaining acceptance work lands.
 
 | Date | Items | Evidence |
 |---|---|---|
 | 2026-08-01 | Baseline | Clean install; lint; typecheck; 366 unit tests; 5 static-build tests; 25 local Chromium tests; current remote workflow green |
-| 2026-08-01 | C1-C7 | 391/391 unit tests; browser coverage for malformed hashes, exact-key/cross-tab full reset, persistence warning/retry, two-tab completion/reset, attempt-bound timers, progress normalization, and Continue precedence |
+| 2026-08-01 | C1-C7 | 391/391 unit tests; browser coverage for malformed hashes, exact-key/cross-tab full reset, persistence warning/retry, two-tab completion/reset, resumed-session timer gating, progress normalization, and Continue precedence |
 | 2026-08-01 | D1, D2, D4, P4, A1, M1 | 6/6 static-build tests; 41/41 combined Chromium/service-worker tests; focused browser test passed at `/nested-audit/`; tracked-content and filename searches found no iteration-specific product names |
 | 2026-08-01 | P1 | Exact timer math and catalog-index unit tests passed; a three-second running sample dropped from roughly 70 ms script/125 ms task/16 ms style work to 3 ms/12 ms/1 ms |
 | 2026-08-01 | S1, S2, T1, T2 | Full unit/build/lint/typecheck passed; multi-puzzle gate passed; Huge passed in 54.8 seconds with exact 1,010 moves, 316 pushes, 1,843 visited, and 13,844 generated for every required orientation |
@@ -361,3 +381,4 @@ Add dated evidence here whenever an item changes to `FIXED`.
 | 2026-08-02 | D3, P2, P3 | 44 generated board shards measure 1.66-3.00 KB gzip; Home's transitive closure contains no board payload; the 1,000-room collection renders exactly 50 URL-addressable rows; 3/3 service-worker lifecycle tests cover positive runtime fill, offline direct Play, navigation safety, and distinct worker-generation replacement/pruning |
 | 2026-08-02 | P5, S3, T3 | Five hint-worker lifecycle tests and five generated-engine protocol tests pass; typed coverage is 92.86% lines, 84.44% branches, and 94.35% functions; generated-engine coverage is 41.80%, 63.54%, and 56.25% respectively; exact nested generated payload extraction remains tracked under S3 |
 | 2026-08-02 | T1 and solver regression | The multi-puzzle gate passed all four tiers; Huge passed in 58.8 seconds with the 874-move/304-push rewrite and exact 1,010 moves, 316 pushes, 1,843 visited, and 13,844 generated for base, mirrored, and rotated discovery |
+| 2026-08-03 | D3, S3, T3, persistence, and release closeout | **Supersedes** the open/in-progress qualifications in the 2026-08-01 D3/T3 and 2026-08-02 S3/T3 rows. All 588 unit/coverage tests, 9/9 static-build tests, lint, typecheck, and the dependency audit passed. The launchable browser matrix passed 109/109 executed tests with 2 intentional skips across Chromium, WebKit, mobile Chrome, mobile Safari, and service-worker Chromium; this Windows host's Firefox binary was separately blocked before page launch by Mozilla's headless graphics initialization. The four-tier solver gate passed, and Huge passed in 58.0 seconds with the 874-move/304-push rewrite plus exact 1,010 moves, 316 pushes, 1,843 visited, and 13,844 generated for base, mirrored, and rotated discovery. Focused typed coverage is 92.35% lines, 84.10% branches, and 93.12% functions; generated-engine coverage is 46.67%, 70.34%, and 61.64%, respectively. D3 binds and verifies the manifest and mutable shell bytes for one build generation; S3 validates required nested generated-engine commands and results; T3 enforces separate all-source, focused typed, generated-engine, and route/bundle budget gates. |

@@ -9,7 +9,7 @@ export const STORAGE_KEYS = Object.freeze({
   progress: "sokomind.progress.v1",
   experience: "sokomind.experience.v1",
   session: "sokomind.session.v1",
-  optimal: "sokomind.optimal.v2",
+  optimal: "sokomind.optimal.v3",
   reset: "sokomind.reset.v1",
 });
 
@@ -18,6 +18,7 @@ export const LEGACY_STORAGE_KEYS = Object.freeze({
   experience: "sokomind.experience.v1",
   currentPuzzle: "sokomind.current-puzzle.v1",
   optimal: "sokomind.optimal.v1",
+  optimalV2: "sokomind.optimal.v2",
 });
 
 export const APP_STORAGE_KEYS: readonly string[] = Object.freeze([
@@ -55,6 +56,13 @@ export interface StorageMutationFailure {
 export type StorageMutationResult =
   | StorageMutationSuccess
   | StorageMutationFailure;
+
+export interface AppResetMarker {
+  readonly version: 1;
+  readonly generation: number;
+  readonly writerId: string;
+  readonly resetAt: string;
+}
 
 function storageFailureReason(error: unknown): StorageFailureReason {
   const name = error && typeof error === "object" && "name" in error
@@ -131,6 +139,68 @@ export function readStoredValue(
   return null;
 }
 
+export function parseAppResetMarker(
+  serialized: string | null,
+): AppResetMarker | null {
+  if (!serialized) return null;
+
+  try {
+    const value: unknown = JSON.parse(serialized);
+    if (
+      !value ||
+      typeof value !== "object" ||
+      !("writerId" in value) ||
+      typeof value.writerId !== "string" ||
+      value.writerId.length === 0 ||
+      !("resetAt" in value) ||
+      typeof value.resetAt !== "string" ||
+      !Number.isFinite(Date.parse(value.resetAt))
+    ) {
+      return null;
+    }
+
+    // Builds before the durable IDB fence retained this two-field marker.
+    // Treat it as the first reset generation so upgrading cannot hydrate the
+    // IndexedDB records those builds failed to clear reliably.
+    const legacyMarker = !("version" in value) && !("generation" in value);
+    const generation = legacyMarker
+      ? 1
+      : "version" in value &&
+          value.version === 1 &&
+          "generation" in value &&
+          typeof value.generation === "number" &&
+          Number.isSafeInteger(value.generation) &&
+          value.generation >= 0
+        ? value.generation
+        : null;
+    if (generation === null) return null;
+
+    return Object.freeze({
+      version: 1,
+      generation,
+      writerId: value.writerId,
+      resetAt: value.resetAt,
+    });
+  } catch {
+    return null;
+  }
+}
+
+export function loadAppResetGeneration(): number {
+  return parseAppResetMarker(readStoredValue(STORAGE_KEYS.reset))?.generation ?? 0;
+}
+
+/**
+ * A page keeps the generation it observed at startup. It must not adopt a
+ * newer reset generation without reloading, because its mounted state may
+ * still contain pre-reset sessions or solver results.
+ */
+export const DOCUMENT_APP_RESET_GENERATION = loadAppResetGeneration();
+
+export function documentCanPersistAppData(): boolean {
+  return loadAppResetGeneration() === DOCUMENT_APP_RESET_GENERATION;
+}
+
 export function writeStoredValue(
   key: string,
   value: string,
@@ -158,27 +228,21 @@ export function removeStoredValue(key: string): StorageMutationResult {
   }
 }
 
-export function clearAppStorage(): void {
-  const storage = browserStorage();
-  if (storage) {
-    for (const key of APP_STORAGE_KEYS) {
-      try {
-        storage.removeItem(key);
-      } catch {
-        // Keep attempting the remaining owned keys if one removal is blocked.
-      }
-    }
-  }
-
-  clearAppSessionStorage();
+export function clearAppStorage(): readonly StorageMutationResult[] {
+  const results = APP_STORAGE_KEYS.map((key) => removeStoredValue(key));
+  return [...results, ...clearAppSessionStorage()];
 }
 
-export function clearAppSessionStorage(): void {
+export function clearAppSessionStorage(): readonly StorageMutationResult[] {
   const session = browserSessionStorage();
-  if (!session) return;
+  if (!session) {
+    return APP_SESSION_STORAGE_KEYS.map((key) =>
+      failedMutation(key, "remove", "unavailable"));
+  }
 
+  const results: StorageMutationResult[] = [];
+  const ownedDynamicKeys: string[] = [];
   try {
-    const ownedDynamicKeys: string[] = [];
     for (let index = 0; index < session.length; index += 1) {
       const key = session.key(index);
       if (
@@ -188,10 +252,25 @@ export function clearAppSessionStorage(): void {
         ownedDynamicKeys.push(key);
       }
     }
-    for (const key of [...APP_SESSION_STORAGE_KEYS, ...ownedDynamicKeys]) {
-      session.removeItem(key);
-    }
-  } catch {
-    // sessionStorage may be blocked independently of localStorage.
+  } catch (error) {
+    results.push(failedMutation(
+      "sokomind:timer:*",
+      "remove",
+      storageFailureReason(error),
+    ));
   }
+
+  for (const key of [...APP_SESSION_STORAGE_KEYS, ...ownedDynamicKeys]) {
+    try {
+      session.removeItem(key);
+      results.push(successfulMutation(key, "remove"));
+    } catch (error) {
+      results.push(failedMutation(
+        key,
+        "remove",
+        storageFailureReason(error),
+      ));
+    }
+  }
+  return results;
 }

@@ -95,6 +95,8 @@ test("invalid play links return home without overwriting the saved attempt", asy
   for (const route of [
     "#/play/not-a-real-puzzle",
     `#/play/ultra-tiny?play=${"D".repeat(2_001)}`,
+    // Lexically valid, but impossible: First Steps starts below a top wall.
+    "#/play/ultra-tiny?play=U",
   ]) {
     await page.goto(`./${route}`);
     await expect(page).toHaveURL(/#\/$/);
@@ -132,7 +134,10 @@ test("large collections use URL-addressable accessible pagination", async ({
   ).toBeFocused();
   await expect(rows).toHaveCount(50);
 
-  await page.getByPlaceholder("Search").fill("999");
+  const search = page.getByPlaceholder("Search");
+  await search.pressSequentially("999");
+  await expect(search).toBeFocused();
+  await expect(search).toHaveValue("999");
   await expect(page).toHaveURL(/Boxoban%20Medium$/);
   await expect(rows).toHaveCount(1);
 });

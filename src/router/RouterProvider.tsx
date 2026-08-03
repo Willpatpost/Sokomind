@@ -14,8 +14,19 @@ function resolveInitialRoute(): Route {
 }
 
 export function RouterProvider({ children }: { children: ReactNode }) {
-  const [route, setRoute] = useState<Route>(resolveInitialRoute);
+  const [routing, setRouting] = useState(() => ({
+    route: resolveInitialRoute(),
+    previousRoute: null as Route | null,
+  }));
+  const { route, previousRoute } = routing;
   const prevPageRef = useRef(route.page);
+
+  const commitRoute = useCallback((next: Route) => {
+    setRouting((current) => ({
+      route: next,
+      previousRoute: current.route,
+    }));
+  }, []);
 
   const navigate = useCallback(
     (hash: string, options?: { replace?: boolean }) => {
@@ -28,12 +39,12 @@ export function RouterProvider({ children }: { children: ReactNode }) {
       if (result.kind === "redirect") {
         window.location.replace(result.hash);
         const resolved = parseHash(result.hash);
-        if (resolved.kind === "route") setRoute(resolved.route);
+        if (resolved.kind === "route") commitRoute(resolved.route);
       } else {
-        setRoute(result.route);
+        commitRoute(result.route);
       }
     },
-    [],
+    [commitRoute],
   );
 
   const back = useCallback(() => {
@@ -50,14 +61,14 @@ export function RouterProvider({ children }: { children: ReactNode }) {
       if (result.kind === "redirect") {
         window.location.replace(result.hash);
         const resolved = parseHash(result.hash);
-        if (resolved.kind === "route") setRoute(resolved.route);
+        if (resolved.kind === "route") commitRoute(resolved.route);
       } else {
-        setRoute(result.route);
+        commitRoute(result.route);
       }
     }
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
-  }, []);
+  }, [commitRoute]);
 
   useEffect(() => {
     if (prevPageRef.current !== route.page) {
@@ -67,8 +78,8 @@ export function RouterProvider({ children }: { children: ReactNode }) {
   }, [route.page]);
 
   const value = useMemo<RouterValue>(
-    () => ({ route, navigate, back }),
-    [route, navigate, back],
+    () => ({ route, previousRoute, navigate, back }),
+    [route, previousRoute, navigate, back],
   );
 
   return (

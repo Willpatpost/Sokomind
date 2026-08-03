@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import { access, readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
@@ -6,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 
 const buildDirectory = fileURLToPath(new URL("../dist/", import.meta.url));
+const repositoryDirectory = fileURLToPath(new URL("../", import.meta.url));
 const expectedPublicSiteUrl = new URL(
   process.env.VITE_PUBLIC_SITE_URL || "https://willpatpost.github.io/Sokomind/",
 );
@@ -32,13 +34,35 @@ async function javascriptDependencyClosure(entryPattern) {
     if (!name || closure.has(name)) continue;
     closure.add(name);
     const source = await readBuildFile(`assets/${name}`);
+    // Follow only eager ESM edges. Dynamic imports represent routes/dialogs
+    // that are not part of a route's initial transfer.
     for (const match of source.matchAll(
-      /(?:from\s*|import\s*\(\s*)["']\.\/([^"']+\.js)["']/gu,
+      /\b(?:import|export)(?!\s*\()[^"'`;]*?["']\.\/([^"']+\.js)["']/gu,
     )) {
       if (assetNames.includes(match[1])) pending.push(match[1]);
     }
   }
   return closure;
+}
+
+function unhashedAssetStem(name) {
+  return name.replace(/-[A-Za-z0-9_-]{8}(?=\.[^.]+$)/u, "")
+    .replace(/\.[^.]+$/u, "");
+}
+
+async function coldRouteAssetNames(entryPattern, assetNames) {
+  const javascriptNames = new Set([
+    ...await javascriptDependencyClosure(/^index-/u),
+    ...await javascriptDependencyClosure(entryPattern),
+  ]);
+  const javascriptStems = new Set(
+    [...javascriptNames].map(unhashedAssetStem),
+  );
+  const stylesheetNames = assetNames.filter(
+    (name) => name.endsWith(".css") &&
+      javascriptStems.has(unhashedAssetStem(name)),
+  );
+  return new Set([...javascriptNames, ...stylesheetNames]);
 }
 
 const DELIVERY_BUDGETS = Object.freeze({
@@ -113,16 +137,120 @@ test("builds a complete static GitHub Pages entry point", async () => {
   ]);
 });
 
+test("Pages deployment uses the full default-branch ref and least privileges", async () => {
+  const workflow = await readFile(
+    path.join(repositoryDirectory, ".github", "workflows", "deploy-pages.yml"),
+    "utf8",
+  );
+  const branchGuard =
+    "github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)";
+
+  assert.equal(
+    workflow.split(branchGuard).length - 1,
+    3,
+    "configure, upload, and deploy must require the full default-branch ref",
+  );
+  assert.doesNotMatch(workflow, /github\.ref_name/u);
+  assert.doesNotMatch(
+    workflow,
+    /push:\s+branches:/u,
+    "push verification must follow a renamed default branch",
+  );
+  assert.match(
+    workflow,
+    /build:\s+name: Build and verify\s+if: github\.event_name != 'push' \|\| github\.ref == format\('refs\/heads\/\{0\}', github\.event\.repository\.default_branch\)/u,
+    "feature-branch pushes should not duplicate pull-request verification",
+  );
+  const buildHeader = workflow.slice(
+    workflow.indexOf("  build:"),
+    workflow.indexOf("    env:"),
+  );
+  assert.match(buildHeader, /permissions:\s+contents: read\s+pages: read/u);
+  assert.doesNotMatch(buildHeader, /pages: write|id-token: write/u);
+});
+
+test("production CSP precedes resources and authorizes every inline script", async () => {
+  const html = await readBuildFile("index.html");
+  const cspMatch = html.match(
+    /<meta\b[^>]*http-equiv=(["'])Content-Security-Policy\1[^>]*content=(["'])(.*?)\2[^>]*>/iu,
+  );
+  assert.ok(cspMatch, "production output should contain a meta CSP");
+
+  const cspIndex = cspMatch.index ?? -1;
+  const firstControlledResourceIndex = html.search(
+    /<(?:script\b|link\b[^>]*rel=["']stylesheet["'])/iu,
+  );
+  assert.ok(cspIndex >= 0);
+  assert.ok(
+    firstControlledResourceIndex === -1 || cspIndex < firstControlledResourceIndex,
+    "meta CSP must precede scripts and stylesheets",
+  );
+
+  const decodedCsp = cspMatch[3]
+    .replaceAll("&#39;", "'")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&amp;", "&");
+  const directives = new Map(
+    decodedCsp
+      .split(";")
+      .map((directive) => directive.trim().split(/\s+/u))
+      .filter((parts) => parts[0])
+      .map(([name, ...values]) => [name, values]),
+  );
+  assert.deepEqual(directives.get("style-src-elem"), ["'self'"]);
+  assert.deepEqual(directives.get("style-src-attr"), ["'unsafe-inline'"]);
+
+  const inlineScripts = [...html.matchAll(/<script\b([^>]*)>([^]*?)<\/script>/giu)]
+    .filter((match) => !/\bsrc\s*=/iu.test(match[1]))
+    .map((match) => match[2]);
+  assert.ok(inlineScripts.length > 0, "expected the early preference bootstrap");
+
+  const expectedHashes = inlineScripts
+    .map((source) => `'sha256-${crypto.createHash("sha256").update(source).digest("base64")}'`)
+    .sort();
+  const declaredHashes = (directives.get("script-src") ?? [])
+    .filter((value) => value.startsWith("'sha256-"))
+    .sort();
+  assert.deepEqual(declaredHashes, expectedHashes);
+});
+
 test("asset manifest lists all hashed build assets", async () => {
   const manifest = JSON.parse(await readBuildFile("asset-manifest.json"));
 
-  assert.equal(manifest.version, 1);
+  assert.equal(manifest.version, 2);
+  assert.match(manifest.revision, /^[a-f0-9]{16}$/u);
+  assert.ok(Array.isArray(manifest.shell));
   assert.ok(Array.isArray(manifest.precache));
   assert.ok(Array.isArray(manifest.runtime));
   const entries = [...manifest.precache, ...manifest.runtime];
   assert.ok(manifest.precache.length > 0, "precache manifest should not be empty");
   assert.ok(manifest.runtime.length > 0, "runtime manifest should not be empty");
   assert.equal(new Set(entries).size, entries.length, "asset paths must be unique");
+  assert.deepEqual(
+    manifest.shell.map((entry) => entry.path),
+    [
+      "./",
+      "./favicon.svg",
+      "./icon-192.png",
+      "./icon-512.png",
+      "./manifest.webmanifest",
+    ],
+  );
+  for (const entry of manifest.shell) {
+    assert.match(entry.sha256, /^[a-f0-9]{64}$/u);
+    const relativePath = entry.path === "./" ? "index.html" : entry.path;
+    const bytes = await readFile(path.join(buildDirectory, relativePath));
+    assert.equal(
+      crypto.createHash("sha256").update(bytes).digest("hex"),
+      entry.sha256,
+      `shell digest should match ${entry.path}`,
+    );
+  }
+  assert.equal(
+    new Set([...manifest.shell.map((entry) => entry.path), ...entries]).size,
+    manifest.shell.length + entries.length,
+    "shell and asset paths must be unique",
+  );
 
   for (const entry of entries) {
     assert.ok(
@@ -167,6 +295,7 @@ test("asset manifest lists all hashed build assets", async () => {
 
 test("production output is installable and omits public source maps", async () => {
   const manifest = JSON.parse(await readBuildFile("manifest.webmanifest"));
+  const assetManifest = JSON.parse(await readBuildFile("asset-manifest.json"));
   const worker = await readBuildFile("sw.js");
   const assets = await readdir(path.join(buildDirectory, "assets"));
 
@@ -179,7 +308,11 @@ test("production output is installable and omits public source maps", async () =
   );
   assert.match(worker, /sokomind-shell/);
   assert.doesNotMatch(worker, /__SOKOMIND_BUILD_REVISION__/);
-  assert.match(worker, /const CACHE_REVISION = "[a-f0-9]{16}";/);
+  const revisionMatch = worker.match(
+    /const CACHE_REVISION = "([a-f0-9]{16})";/u,
+  );
+  assert.ok(revisionMatch, "the worker should embed a build revision");
+  assert.equal(assetManifest.revision, revisionMatch[1]);
   assert.equal(
     assets.some((asset) => asset.endsWith(".map")),
     false,
@@ -288,37 +421,22 @@ test("production delivery stays within reviewed gzip budgets", async () => {
     DELIVERY_BUDGETS.largestAssetGzipBytes,
   );
 
-  function routeGzipBytes(patterns) {
+  function namedAssetsGzipBytes(names) {
     return assets
-      .filter((asset) => patterns.some((pattern) => pattern.test(asset.name)))
+      .filter((asset) => names.has(asset.name))
       .reduce((sum, asset) => sum + asset.gzipBytes, 0);
   }
 
-  const sharedRoutePatterns = [
-    /^index-/u,
-    /^react-vendor-/u,
-    /^HowToPlay-/u,
-    /^compute-stats-/u,
-    /^navigation-/u,
-    /^optimal-cache-/u,
-    /^progress-/u,
-    /^puzzles-/u,
-  ];
+  const homeRouteAssets = await coldRouteAssetNames(/^HomePage-/u, assetNames);
   assertWithinBudget(
     "cold Home route",
-    routeGzipBytes([...sharedRoutePatterns, /^HomePage-/u]),
+    namedAssetsGzipBytes(homeRouteAssets),
     DELIVERY_BUDGETS.homeRouteGzipBytes,
   );
+  const playRouteAssets = await coldRouteAssetNames(/^PlayPage-/u, assetNames);
   assertWithinBudget(
     "cold Play route without closed dialogs",
-    routeGzipBytes([
-      ...sharedRoutePatterns,
-      /^puzzle-shard-/u,
-      /^PlayPage-/u,
-      /^ConfirmDialog-/u,
-      /^Modal-/u,
-      /^solver-/u,
-    ]),
+    namedAssetsGzipBytes(playRouteAssets) + largestPuzzleShard.gzipBytes,
     DELIVERY_BUDGETS.playRouteGzipBytes,
   );
 

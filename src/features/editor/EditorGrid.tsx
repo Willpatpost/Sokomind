@@ -24,6 +24,18 @@ type EditorGridStyle = CSSProperties & {
   "--rows": number;
 };
 
+interface ActivePointer {
+  readonly id: number;
+  readonly pointerType: string;
+  readonly startX: number;
+  readonly startY: number;
+  readonly row: number;
+  readonly column: number;
+  moved: boolean;
+}
+
+const TOUCH_SCROLL_THRESHOLD = 8;
+
 function cellLabel(symbol: string): string {
   if (symbol === "O") return "W";
   if (symbol === " ") return "";
@@ -49,7 +61,7 @@ function cellFromTarget(target: EventTarget | null): HTMLButtonElement | null {
 }
 
 export function EditorGrid({ state, dispatch }: EditorGridProps) {
-  const activePointer = useRef<number | null>(null);
+  const activePointer = useRef<ActivePointer | null>(null);
   const cellRefs = useRef(new Map<string, HTMLButtonElement>());
   const [activeCell, setActiveCell] = useState({ row: 0, column: 0 });
   const activeRow = Math.min(activeCell.row, state.height - 1);
@@ -76,9 +88,14 @@ export function EditorGrid({ state, dispatch }: EditorGridProps) {
 
   const finishPainting = (
     event: ReactPointerEvent<HTMLDivElement>,
+    commitTouch: boolean,
   ): void => {
-    if (activePointer.current !== event.pointerId) return;
+    const active = activePointer.current;
+    if (!active || active.id !== event.pointerId) return;
     activePointer.current = null;
+    if (commitTouch && active.pointerType === "touch" && !active.moved) {
+      paint(active.row, active.column);
+    }
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
@@ -156,20 +173,46 @@ export function EditorGrid({ state, dispatch }: EditorGridProps) {
           if (event.pointerType === "mouse" && event.button !== 0) return;
           const cell = cellFromTarget(event.target);
           if (!cell) return;
-          activePointer.current = event.pointerId;
+          const row = Number(cell.dataset.row);
+          const column = Number(cell.dataset.column);
+          if (!Number.isInteger(row) || !Number.isInteger(column)) return;
+          activePointer.current = {
+            id: event.pointerId,
+            pointerType: event.pointerType,
+            startX: event.clientX,
+            startY: event.clientY,
+            row,
+            column,
+            moved: false,
+          };
+          // Touch starts may be taps or native scroll gestures. Defer painting
+          // until pointer-up proves the finger did not pan the canvas.
+          if (event.pointerType === "touch") return;
           event.currentTarget.setPointerCapture(event.pointerId);
           paintElement(cell);
         }}
         onPointerMove={(event) => {
-          if (activePointer.current !== event.pointerId) return;
+          const active = activePointer.current;
+          if (!active || active.id !== event.pointerId) return;
+          if (active.pointerType === "touch") {
+            if (
+              Math.hypot(
+                event.clientX - active.startX,
+                event.clientY - active.startY,
+              ) > TOUCH_SCROLL_THRESHOLD
+            ) {
+              active.moved = true;
+            }
+            return;
+          }
           paintElement(
             cellFromTarget(document.elementFromPoint(event.clientX, event.clientY)),
           );
         }}
-        onPointerUp={finishPainting}
-        onPointerCancel={finishPainting}
+        onPointerUp={(event) => finishPainting(event, true)}
+        onPointerCancel={(event) => finishPainting(event, false)}
         onLostPointerCapture={(event) => {
-          if (activePointer.current === event.pointerId) {
+          if (activePointer.current?.id === event.pointerId) {
             activePointer.current = null;
           }
         }}

@@ -12,6 +12,9 @@ import {
 
 const DIST = fileURLToPath(new URL("../dist/", import.meta.url));
 const PLAYWRIGHT_REVISION_PARAMETER = "playwright-sw-revision";
+const PLAYWRIGHT_MANIFEST_REVISION_PARAMETER =
+  "playwright-manifest-revision";
+const PLAYWRIGHT_SHELL_MISMATCH_PARAMETER = "playwright-shell-mismatch";
 
 const CONTENT_TYPES = new Map([
   [".css", "text/css; charset=utf-8"],
@@ -76,6 +79,44 @@ const server = createServer(async (request, response) => {
         "cache-control": "no-store",
         "content-length": body.length,
         "content-type": "text/javascript; charset=utf-8",
+      });
+      response.end(request.method === "HEAD" ? undefined : body);
+      return;
+    }
+
+    if (path.basename(target) === "asset-manifest.json" && testRevision) {
+      const requestedManifestRevision = requestUrl.searchParams.get(
+        PLAYWRIGHT_MANIFEST_REVISION_PARAMETER,
+      ) ?? testRevision;
+      if (!/^[a-z0-9-]{1,64}$/i.test(requestedManifestRevision)) {
+        response.writeHead(400).end("Invalid test manifest revision");
+        return;
+      }
+      const manifest = JSON.parse(await readFile(target, "utf8"));
+      const body = Buffer.from(JSON.stringify({
+        ...manifest,
+        revision: requestedManifestRevision,
+      }, null, 2));
+      response.writeHead(200, {
+        "cache-control": "no-store",
+        "content-length": body.length,
+        "content-type": "application/json; charset=utf-8",
+      });
+      response.end(request.method === "HEAD" ? undefined : body);
+      return;
+    }
+
+    if (
+      path.basename(target) === "index.html" &&
+      requestUrl.searchParams.get(PLAYWRIGHT_SHELL_MISMATCH_PARAMETER) === "1"
+    ) {
+      const body = Buffer.from(
+        `${await readFile(target, "utf8")}\n<!-- mismatched test shell -->\n`,
+      );
+      response.writeHead(200, {
+        "cache-control": "no-store",
+        "content-length": body.length,
+        "content-type": "text/html; charset=utf-8",
       });
       response.end(request.method === "HEAD" ? undefined : body);
       return;

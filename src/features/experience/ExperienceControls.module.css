@@ -66,12 +66,14 @@
   stroke: currentColor;
 }
 
-.panel {
-  position: absolute;
-  z-index: 70;
-  top: calc(100% + 10px);
-  right: 0;
+.modal {
   width: min(340px, calc(100vw - 24px));
+  overflow-y: auto;
+}
+
+.panel {
+  box-sizing: border-box;
+  width: 100%;
   padding: 22px;
   border: 1px solid rgb(23 25 22 / 0.1);
   border-radius: 20px;
@@ -80,11 +82,6 @@
   box-shadow: 0 24px 70px rgb(23 25 22 / 0.22);
   backdrop-filter: blur(22px);
   animation: panel-in 180ms ease both;
-}
-
-.controls[data-placement="start"] .panel {
-  right: auto;
-  left: 0;
 }
 
 .panelHeading {
@@ -318,15 +315,9 @@
 }
 
 @media (max-width: 600px) {
-  .panel,
-  .controls[data-placement="start"] .panel {
-    position: fixed;
-    top: 76px;
-    right: 12px;
-    left: 12px;
-    width: auto;
+  .modal {
+    width: calc(100vw - 24px);
     max-height: calc(100vh - 88px);
-    overflow-y: auto;
   }
 }
 

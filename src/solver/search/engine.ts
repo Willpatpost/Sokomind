@@ -468,7 +468,14 @@ export async function runClassicSearch(
     const initialOccupancy = occupancyFor(board.cellCount, initialBoxes);
     const initialReachable = reachability.flood(initialRobot, initialOccupancy);
     counters.reachabilityFloods += 1;
-    const initialKey = zobrist.stateKey(initialReachable.canonicalCell, initialBoxes);
+    // A* minimizes keeper movement as well as pushes, so two states with the
+    // same boxes but different exact keeper cells are not interchangeable:
+    // their costs to the next support cell can differ. First-found searches do
+    // not make that optimality claim and may still collapse a reachable region.
+    const initialIdentityRobot = configuration.strategy === "astar"
+      ? initialRobot
+      : initialReachable.canonicalCell;
+    const initialKey = zobrist.stateKey(initialIdentityRobot, initialBoxes);
     const initialHeuristic = heuristic.evaluate(initialBoxes);
     const [ip0, ip1, ip2] = nodePriority(
       configuration.strategy,
@@ -789,7 +796,10 @@ export async function runClassicSearch(
           fillOccupancy(childOccupancyBuffer, boxes);
           const childReachable = childReachability.flood(box.cell, childOccupancyBuffer);
           counters.reachabilityFloods += 1;
-          const key = zobrist.stateKey(childReachable.canonicalCell, boxes);
+          const identityRobot = configuration.strategy === "astar"
+            ? box.cell
+            : childReachable.canonicalCell;
+          const key = zobrist.stateKey(identityRobot, boxes);
 
           if (configuration.strategy === "astar") {
             const bestIndex = bestNodeByKey.get(key);

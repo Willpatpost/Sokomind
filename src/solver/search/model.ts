@@ -121,14 +121,14 @@ export class ZobristTable {
     }
   }
 
-  stateKey(canonicalRobotCell: number, boxes: readonly DenseBox[]): string {
+  stateKey(robotCell: number, boxes: readonly DenseBox[]): string {
     if (import.meta.env?.DEV) {
       if (
-        canonicalRobotCell < 0 ||
-        canonicalRobotCell >= this.#robotTable.length
+        robotCell < 0 ||
+        robotCell >= this.#robotTable.length
       ) {
         throw new RangeError(
-          `Zobrist: robotCell ${canonicalRobotCell} out of range [0, ${this.#robotTable.length})`,
+          `Zobrist: robotCell ${robotCell} out of range [0, ${this.#robotTable.length})`,
         );
       }
       for (let i = 0; i < boxes.length; i++) {
@@ -145,8 +145,8 @@ export class ZobristTable {
         }
       }
     }
-    let h1 = this.#robotTable[canonicalRobotCell] ?? 0;
-    let h2 = this.#robotTable2[canonicalRobotCell] ?? 0;
+    let h1 = this.#robotTable[robotCell] ?? 0;
+    let h2 = this.#robotTable2[robotCell] ?? 0;
     for (let i = 0; i < boxes.length; i++) {
       const box = boxes[i];
       const labelIndex = this.#labelToIndex.get(box.label) ?? 0;

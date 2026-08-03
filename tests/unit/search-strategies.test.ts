@@ -45,6 +45,21 @@ const TWO_GENERIC_BOXES: PuzzleDefinition = {
   ],
 };
 
+const EXACT_KEEPER_IDENTITY_REGRESSION: PuzzleDefinition = {
+  id: "exact-keeper-identity-regression",
+  title: "Exact keeper identity regression",
+  difficulty: "tutorial",
+  boxes: 2,
+  rows: [
+    "OOOOOOO",
+    "O X SSO",
+    "O   O O",
+    "OO XR O",
+    "O     O",
+    "OOOOOOO",
+  ],
+};
+
 function requestFor(
   puzzle: PuzzleDefinition,
   objective: SolverObjective,
@@ -248,6 +263,19 @@ describe("classic search strategies", () => {
     const result = solved(await solve(classicAStarSolver, request));
 
     assert.equal(result.solution.objectiveScore, expected.score);
+    assert.equal(result.solution.moves, expected.moves);
+    assert.equal(result.solution.optimality, "proven");
+    assert.equal(verifySolverSolution(request, result.solution).valid, true);
+  });
+
+  it("keeps exact keeper positions distinct when A* compares move costs", async () => {
+    const request = requestFor(EXACT_KEEPER_IDENTITY_REGRESSION, {
+      kind: "moves",
+    });
+    const expected = exactStepOracle(request);
+    const result = solved(await solve(classicAStarSolver, request));
+
+    assert.equal(expected.moves, 18);
     assert.equal(result.solution.moves, expected.moves);
     assert.equal(result.solution.optimality, "proven");
     assert.equal(verifySolverSolution(request, result.solution).valid, true);

@@ -1,14 +1,17 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import {
+  activateWaitingUpdate,
   getUpdateSnapshot,
   subscribeToUpdate,
+  type ServiceWorkerUpdate,
 } from "../sw-update-store";
 import styles from "./UpdateNotification.module.css";
 
 const AUTO_DISMISS_MS = 30_000;
 
-function UpdateBanner() {
+function UpdateBanner({ update }: { readonly update: ServiceWorkerUpdate }) {
   const [dismissed, setDismissed] = useState(false);
+  const [activating, setActivating] = useState(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDismissed(true), AUTO_DISMISS_MS);
@@ -28,9 +31,13 @@ function UpdateBanner() {
       </span>
       <button
         className={styles.reload}
-        onClick={() => location.reload()}
+        disabled={activating}
+        onClick={() => {
+          setActivating(true);
+          activateWaitingUpdate(update.waitingWorker);
+        }}
       >
-        Reload
+        {activating ? "Updating…" : "Reload"}
       </button>
       <button
         className={styles.dismiss}
@@ -52,5 +59,5 @@ export function UpdateNotification() {
 
   if (!updateAvailable) return null;
 
-  return <UpdateBanner />;
+  return <UpdateBanner key={updateAvailable.sequence} update={updateAvailable} />;
 }

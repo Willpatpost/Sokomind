@@ -7,7 +7,10 @@ import {
   APP_SESSION_STORAGE_KEYS,
   APP_SESSION_STORAGE_PREFIXES,
   APP_STORAGE_KEYS,
+  clearAppSessionStorage,
   clearAppStorage,
+  loadAppResetGeneration,
+  parseAppResetMarker,
   readStoredValue,
   writeStoredValue,
   removeStoredValue,
@@ -70,6 +73,58 @@ describe("LEGACY_STORAGE_KEYS", () => {
   });
 });
 
+describe("reset markers", () => {
+  let storage: Storage;
+
+  beforeEach(() => {
+    storage = createMockStorage();
+    installMockStorage(storage);
+  });
+
+  afterEach(() => {
+    removeMockStorage();
+  });
+
+  it("loads current generations and migrates legacy reset markers to generation one", () => {
+    const resetAt = "2026-08-03T12:00:00.000Z";
+    storage.setItem(STORAGE_KEYS.reset, JSON.stringify({
+      writerId: "legacy-writer",
+      resetAt,
+    }));
+    assert.deepEqual(parseAppResetMarker(storage.getItem(STORAGE_KEYS.reset)), {
+      version: 1,
+      generation: 1,
+      writerId: "legacy-writer",
+      resetAt,
+    });
+    assert.equal(loadAppResetGeneration(), 1);
+
+    storage.setItem(STORAGE_KEYS.reset, JSON.stringify({
+      version: 1,
+      generation: 7,
+      writerId: "current-writer",
+      resetAt,
+    }));
+    assert.equal(loadAppResetGeneration(), 7);
+  });
+
+  it("rejects malformed and partially versioned reset markers", () => {
+    for (const serialized of [
+      null,
+      "not-json",
+      "{}",
+      JSON.stringify({ writerId: "legacy", resetAt: "not-a-date" }),
+      JSON.stringify({
+        version: 1,
+        writerId: "partial",
+        resetAt: "2026-08-03T12:00:00.000Z",
+      }),
+    ]) {
+      assert.equal(parseAppResetMarker(serialized), null);
+    }
+  });
+});
+
 describe("clearAppStorage", () => {
   let storage: Storage;
   let sessionStorage: Storage;
@@ -122,6 +177,48 @@ describe("clearAppStorage", () => {
   it("does nothing when storage is unavailable", () => {
     removeMockStorage();
     assert.doesNotThrow(() => clearAppStorage());
+  });
+
+  it("reports unavailable session storage instead of claiming removal", () => {
+    installMockStorage(storage);
+    const results = clearAppSessionStorage();
+
+    assert.equal(results.length, APP_SESSION_STORAGE_KEYS.length);
+    assert.ok(results.every((result) =>
+      !result.ok && result.reason === "unavailable"));
+  });
+
+  it("reports enumeration and per-key session removal failures", () => {
+    const inaccessible = createMockStorage();
+    Object.defineProperty(inaccessible, "length", {
+      configurable: true,
+      get() {
+        throw new DOMException("Storage is blocked", "SecurityError");
+      },
+    });
+    installMockStorage(storage, inaccessible);
+    const enumerationResults = clearAppSessionStorage();
+    assert.ok(enumerationResults.some((result) =>
+      !result.ok &&
+      result.key === "sokomind:timer:*" &&
+      result.reason === "security-error"));
+
+    const partlyBlocked = createMockStorage();
+    const timerKey = `${APP_SESSION_STORAGE_PREFIXES[0]}ultra-tiny`;
+    partlyBlocked.setItem(timerKey, "5000");
+    const removeItem = partlyBlocked.removeItem.bind(partlyBlocked);
+    partlyBlocked.removeItem = (key) => {
+      if (key === timerKey) {
+        throw new DOMException("Storage is blocked", "SecurityError");
+      }
+      removeItem(key);
+    };
+    installMockStorage(storage, partlyBlocked);
+    const removalResults = clearAppSessionStorage();
+    assert.ok(removalResults.some((result) =>
+      !result.ok &&
+      result.key === timerKey &&
+      result.reason === "security-error"));
   });
 });
 

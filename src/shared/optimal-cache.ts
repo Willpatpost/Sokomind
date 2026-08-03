@@ -1,12 +1,13 @@
 import {
-  LEGACY_STORAGE_KEYS,
+  DOCUMENT_APP_RESET_GENERATION,
   STORAGE_KEYS,
+  documentCanPersistAppData,
   readStoredValue,
   writeStoredValue,
   type StorageMutationResult,
 } from "./storage.ts";
 import { trackPersistenceResult } from "./persistence-health.ts";
-import { idbGet, idbSet } from "./idb-storage.ts";
+import { idbFencedGet, idbFencedUpdate } from "./idb-storage.ts";
 
 export interface OptimalRecord {
   readonly moves: number;
@@ -14,12 +15,16 @@ export interface OptimalRecord {
 }
 
 export interface OptimalCache {
-  readonly version: 2;
+  readonly version: 3;
   readonly records: Readonly<Record<string, OptimalRecord>>;
 }
 
+export type OptimalCacheMutationResult = StorageMutationResult & {
+  readonly cache: OptimalCache;
+};
+
 const EMPTY_CACHE: OptimalCache = Object.freeze({
-  version: 2,
+  version: 3,
   records: Object.freeze({}),
 });
 
@@ -33,14 +38,9 @@ function isValidCount(value: unknown): value is number {
   return Number.isInteger(value) && typeof value === "number" && value >= 0;
 }
 
-function normalizeRecord(
-  value: unknown,
-  legacy: boolean,
-): OptimalRecord | undefined {
+function normalizeRecord(value: unknown): OptimalRecord | undefined {
   if (!isRecord(value)) return undefined;
-  const expectedKeys = legacy
-    ? new Set(["moves", "pushes", "objective"])
-    : new Set(["moves", "pushes"]);
+  const expectedKeys = new Set(["moves", "pushes"]);
   const keys = Object.keys(value);
   if (
     keys.length !== expectedKeys.size ||
@@ -48,7 +48,6 @@ function normalizeRecord(
   ) {
     return undefined;
   }
-  if (legacy && value.objective !== "moves") return undefined;
   if (!isValidCount(value.moves) || !isValidCount(value.pushes)) {
     return undefined;
   }
@@ -57,24 +56,61 @@ function normalizeRecord(
 }
 
 /**
- * Converts persisted data to the move-only schema. Legacy push and combined
- * records are discarded because they do not prove a minimum move count.
+ * Accept only records created by the current proof pipeline. Version 1 and 2
+ * caches are intentionally invalidated: their earlier A* runs did not provide
+ * a trustworthy minimum-move proof.
  */
 export function normalizeOptimalCache(value: unknown): OptimalCache {
   if (!isRecord(value) || !isRecord(value.records)) return EMPTY_CACHE;
-  if (value.version !== 1 && value.version !== 2) return EMPTY_CACHE;
+  if (value.version !== 3) return EMPTY_CACHE;
 
-  const legacy = value.version === 1;
   const records: Record<string, OptimalRecord> = {};
   for (const [puzzleId, candidate] of Object.entries(value.records)) {
     if (!puzzleId) continue;
-    const record = normalizeRecord(candidate, legacy);
+    const record = normalizeRecord(candidate);
     if (record) records[puzzleId] = record;
   }
   return Object.freeze({
-    version: 2,
+    version: 3,
     records: Object.freeze(records),
   });
+}
+
+function betterRecord(
+  first: OptimalRecord | undefined,
+  second: OptimalRecord,
+): OptimalRecord {
+  if (!first || second.moves < first.moves) return second;
+  if (second.moves > first.moves) return first;
+  return second.pushes < first.pushes ? second : first;
+}
+
+export function mergeOptimalCaches(
+  first: OptimalCache,
+  second: OptimalCache,
+): OptimalCache {
+  let changed = false;
+  const records: Record<string, OptimalRecord> = { ...first.records };
+  for (const [puzzleId, candidate] of Object.entries(second.records)) {
+    const selected = betterRecord(records[puzzleId], candidate);
+    if (selected === records[puzzleId]) continue;
+    records[puzzleId] = selected;
+    changed = true;
+  }
+  if (!changed) return first;
+  return Object.freeze({
+    version: 3,
+    records: Object.freeze(records),
+  });
+}
+
+export function parseOptimalCache(serialized: string | null): OptimalCache {
+  if (!serialized) return EMPTY_CACHE;
+  try {
+    return normalizeOptimalCache(JSON.parse(serialized) as unknown);
+  } catch {
+    return EMPTY_CACHE;
+  }
 }
 
 /**
@@ -83,38 +119,24 @@ export function normalizeOptimalCache(value: unknown): OptimalCache {
  * richer data stored in IndexedDB.
  */
 export function loadOptimalCache(): OptimalCache {
-  const raw = readStoredValue(STORAGE_KEYS.optimal, [
-    LEGACY_STORAGE_KEYS.optimal,
-  ]);
-  if (!raw) return EMPTY_CACHE;
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    const cache = normalizeOptimalCache(parsed);
-    if (isRecord(parsed) && parsed.version === 1) saveOptimalCache(cache);
-    return cache;
-  } catch {
-    // Corrupt data; start fresh.
-  }
-  return EMPTY_CACHE;
+  return parseOptimalCache(readStoredValue(STORAGE_KEYS.optimal));
 }
 
 /**
  * Asynchronously loads the optimal cache from IndexedDB. Returns the IDB
- * copy if it contains more records than `current`, otherwise returns
- * `current` unchanged. This lets callers merge IDB data after the
- * synchronous localStorage load.
+ * copy merged with the synchronous localStorage result. Conflicts retain the
+ * lower proven move count, so neither storage tier can erase a stronger proof.
  */
 export async function hydrateOptimalCacheFromIDB(
   current: OptimalCache,
 ): Promise<OptimalCache> {
   try {
-    const stored = await idbGet<OptimalCache>(IDB_KEY);
+    const stored = await idbFencedGet<OptimalCache>(
+      IDB_KEY,
+      DOCUMENT_APP_RESET_GENERATION,
+    );
     if (!stored) return current;
-    const normalized = normalizeOptimalCache(stored);
-    const idbCount = Object.keys(normalized.records).length;
-    const currentCount = Object.keys(current.records).length;
-    if (idbCount > currentCount) return normalized;
-    return current;
+    return mergeOptimalCaches(current, normalizeOptimalCache(stored));
   } catch {
     return current;
   }
@@ -125,15 +147,28 @@ export async function hydrateOptimalCacheFromIDB(
  * persistence-health) and to IndexedDB in the background for quota
  * resilience. If localStorage fails due to quota, IDB still succeeds.
  */
-export function saveOptimalCache(cache: OptimalCache): StorageMutationResult {
+export function saveOptimalCache(cache: OptimalCache): OptimalCacheMutationResult {
+  if (!documentCanPersistAppData()) {
+    return {
+      ok: true,
+      key: STORAGE_KEYS.optimal,
+      operation: "write",
+      cache,
+    };
+  }
+
+  // Re-read localStorage at the write boundary. This closes the usual stale-tab
+  // window; storage-event reconciliation below handles truly simultaneous
+  // writes, while the IndexedDB update is atomic.
+  const merged = mergeOptimalCaches(loadOptimalCache(), cache);
   const result = trackPersistenceResult(
-    writeStoredValue(STORAGE_KEYS.optimal, JSON.stringify(cache)),
+    writeStoredValue(STORAGE_KEYS.optimal, JSON.stringify(merged)),
   );
 
-  // Background-persist to IndexedDB; fire-and-forget.
-  idbSet(IDB_KEY, cache).catch(() => {});
+  void idbFencedUpdate(IDB_KEY, DOCUMENT_APP_RESET_GENERATION, (stored) =>
+    mergeOptimalCaches(normalizeOptimalCache(stored), merged)).catch(() => {});
 
-  return result;
+  return { ...result, cache: merged };
 }
 
 export function setOptimalRecord(
@@ -142,7 +177,7 @@ export function setOptimalRecord(
   record: OptimalRecord,
 ): OptimalCache {
   return {
-    version: 2,
+    version: 3,
     records: { ...cache.records, [puzzleId]: record },
   };
 }

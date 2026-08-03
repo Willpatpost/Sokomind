@@ -1,8 +1,10 @@
 import {
   useEffect,
   useRef,
+  type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
+  type RefObject,
 } from "react";
 import styles from "./Modal.module.css";
 
@@ -15,6 +17,7 @@ interface ModalProps {
   readonly className?: string;
   readonly mobileSheet?: boolean;
   readonly closeOnBackdrop?: boolean;
+  readonly returnFocusRef?: RefObject<HTMLElement | null>;
   readonly children: ReactNode;
 }
 
@@ -25,6 +28,7 @@ const FOCUSABLE_SELECTOR = [
   "input:not([disabled])",
   "select:not([disabled])",
   "textarea:not([disabled])",
+  "summary",
   "[tabindex]:not([tabindex='-1'])",
 ].join(",");
 
@@ -44,10 +48,11 @@ export function Modal({
   className,
   mobileSheet = false,
   closeOnBackdrop = true,
+  returnFocusRef,
   children,
 }: ModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const returnFocusRef = useRef<HTMLElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -58,10 +63,11 @@ export function Modal({
       return;
     }
 
-    returnFocusRef.current =
-      document.activeElement instanceof HTMLElement
+    previousFocusRef.current =
+      returnFocusRef?.current ??
+      (document.activeElement instanceof HTMLElement
         ? document.activeElement
-        : null;
+        : null);
 
     if (!dialog.open) dialog.showModal();
     document.documentElement.dataset.modalOpen = "";
@@ -77,10 +83,39 @@ export function Modal({
       if (!document.querySelector("dialog[open]")) {
         delete document.documentElement.dataset.modalOpen;
       }
-      const returnFocus = returnFocusRef.current;
-      if (returnFocus?.isConnected) returnFocus.focus();
+      const returnFocus = previousFocusRef.current;
+      if (returnFocus?.isConnected) {
+        window.requestAnimationFrame(() => {
+          if (returnFocus.isConnected) returnFocus.focus();
+        });
+      }
     };
-  }, [open]);
+  }, [open, returnFocusRef]);
+
+  function handleKeyDown(event: KeyboardEvent<HTMLDialogElement>) {
+    if (event.key !== "Tab") return;
+
+    const dialog = event.currentTarget;
+    const focusable = Array.from(
+      dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+    ).filter((element) => element.tabIndex >= 0);
+    if (focusable.length === 0) {
+      event.preventDefault();
+      dialog.focus();
+      return;
+    }
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (event.shiftKey && (active === first || !dialog.contains(active))) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
 
   function handleBackdrop(event: MouseEvent<HTMLDialogElement>) {
     if (!closeOnBackdrop || event.target !== event.currentTarget) return;
@@ -108,8 +143,10 @@ export function Modal({
         event.preventDefault();
         onClose();
       }}
+      onKeyDown={handleKeyDown}
       onMouseDown={handleBackdrop}
       ref={dialogRef}
+      tabIndex={-1}
     >
       {children}
     </dialog>

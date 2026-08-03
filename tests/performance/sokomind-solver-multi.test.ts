@@ -13,6 +13,11 @@ import {
   toLegacyState,
 } from "../../src/solver/implementations/sokomind-solver.ts";
 import { verifySolverSolution } from "../../src/solver/verification.ts";
+import {
+  isPerformanceTestChild,
+  relayPerformanceJson,
+  runPerformanceTestModule,
+} from "../support/child-process-gate.ts";
 
 // ---------------------------------------------------------------------------
 // Puzzle suite — varying difficulty
@@ -77,6 +82,9 @@ const PUZZLE_CASES: readonly PuzzleCase[] = [
   },
 ];
 
+const PERFORMANCE_CASE_ENV = "SOKOMIND_MULTI_PERFORMANCE_CASE";
+const PROCESS_STARTUP_ALLOWANCE_MS = 10_000;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -94,75 +102,74 @@ function requestFor(puzzle: PuzzleDefinition): SolverRequest {
 // Test
 // ---------------------------------------------------------------------------
 
-test("Sokomind Solver solves and verifies multiple puzzles of varying difficulty", () => {
+function runPuzzleCase(puzzleCase: PuzzleCase): void {
   const originalPostMessage = globalThis.postMessage;
   globalThis.postMessage = (() => {}) as typeof globalThis.postMessage;
 
   try {
-    for (const puzzleCase of PUZZLE_CASES) {
-      const puzzle = PUZZLE_BY_ID[puzzleCase.id];
-      assert.ok(puzzle, `puzzle '${puzzleCase.id}' must exist in catalog`);
+    const puzzle = PUZZLE_BY_ID[puzzleCase.id];
+    assert.ok(puzzle, `puzzle '${puzzleCase.id}' must exist in catalog`);
 
-      const request = requestFor(puzzle);
-      const started = performance.now();
-      const result = search({
-        algorithm: "plan-macro-beam",
-        state: toLegacyState(request),
-        maxDepth: puzzleCase.maxDepth,
-        maxVisited: puzzleCase.maxVisited,
-        transpositionLimit: puzzleCase.transpositionLimit,
-        planBeamWidth: puzzleCase.planBeamWidth,
-        planBoxBranches: puzzleCase.planBoxBranches,
-        maxPlanSegments: puzzleCase.maxPlanSegments,
-        planSlack: 240,
-        sequenceMacroLimit: 24,
-        sequenceMacroExplored: 48,
-        sequenceMacroResults: 4,
-        targetedMacroExplored: 64,
-        progressIntervalMs: 5_000,
-      });
-      const elapsedMs = performance.now() - started;
+    const request = requestFor(puzzle);
+    const started = performance.now();
+    const result = search({
+      algorithm: "plan-macro-beam",
+      state: toLegacyState(request),
+      maxDepth: puzzleCase.maxDepth,
+      maxVisited: puzzleCase.maxVisited,
+      transpositionLimit: puzzleCase.transpositionLimit,
+      planBeamWidth: puzzleCase.planBeamWidth,
+      planBoxBranches: puzzleCase.planBoxBranches,
+      maxPlanSegments: puzzleCase.maxPlanSegments,
+      planSlack: 240,
+      sequenceMacroLimit: 24,
+      sequenceMacroExplored: 48,
+      sequenceMacroResults: 4,
+      targetedMacroExplored: 64,
+      progressIntervalMs: 5_000,
+    });
+    const elapsedMs = performance.now() - started;
 
-      // Assert solved.
-      assert.equal(
-        result.status,
-        "solved",
-        `${puzzleCase.label}: expected solved, got ${result.status}`,
-      );
-      assert.ok(
-        Array.isArray(result.path),
-        `${puzzleCase.label}: result must have a path`,
-      );
+    // Assert solved.
+    assert.equal(
+      result.status,
+      "solved",
+      `${puzzleCase.label}: expected solved, got ${result.status}`,
+    );
+    assert.ok(
+      Array.isArray(result.path),
+      `${puzzleCase.label}: result must have a path`,
+    );
 
-      // Reconstruct and verify the solution.
-      const solution = solutionFromLegacyPath(request, result.path);
-      assert.ok(solution, `${puzzleCase.label}: solution must be non-null`);
+    // Reconstruct and verify the solution.
+    const solution = solutionFromLegacyPath(request, result.path);
+    assert.ok(solution, `${puzzleCase.label}: solution must be non-null`);
 
-      const verification = verifySolverSolution(request, solution);
-      assert.equal(
-        verification.valid,
-        true,
-        `${puzzleCase.label}: replay verification failed`,
-      );
+    const verification = verifySolverSolution(request, solution);
+    assert.equal(
+      verification.valid,
+      true,
+      `${puzzleCase.label}: replay verification failed`,
+    );
 
-      // Assert time bound.
-      assert.ok(
-        elapsedMs <= puzzleCase.maxElapsedMs,
-        `${puzzleCase.label}: elapsed ${Math.round(elapsedMs)}ms exceeds ${puzzleCase.maxElapsedMs}ms limit`,
-      );
+    // Assert time bound when the synchronous search returns normally. The
+    // parent process also enforces an absolute deadline if it does not return.
+    assert.ok(
+      elapsedMs <= puzzleCase.maxElapsedMs,
+      `${puzzleCase.label}: elapsed ${Math.round(elapsedMs)}ms exceeds ${puzzleCase.maxElapsedMs}ms limit`,
+    );
 
-      console.info(
-        JSON.stringify({
-          puzzle: puzzleCase.id,
-          label: puzzleCase.label,
-          elapsedMs: Math.round(elapsedMs),
-          moves: solution.moves,
-          pushes: solution.pushes,
-          visited: result.visited,
-          generated: result.generated,
-        }),
-      );
-    }
+    console.info(
+      JSON.stringify({
+        puzzle: puzzleCase.id,
+        label: puzzleCase.label,
+        elapsedMs: Math.round(elapsedMs),
+        moves: solution.moves,
+        pushes: solution.pushes,
+        visited: result.visited,
+        generated: result.generated,
+      }),
+    );
   } finally {
     if (originalPostMessage === undefined) {
       Reflect.deleteProperty(globalThis, "postMessage");
@@ -170,4 +177,24 @@ test("Sokomind Solver solves and verifies multiple puzzles of varying difficulty
       globalThis.postMessage = originalPostMessage;
     }
   }
-});
+}
+
+const childCaseId = process.env[PERFORMANCE_CASE_ENV];
+if (isPerformanceTestChild(import.meta.url)) {
+  const puzzleCase = PUZZLE_CASES.find(({ id }) => id === childCaseId);
+  test(`Sokomind Solver solves ${childCaseId ?? "an unknown case"}`, () => {
+    assert.ok(puzzleCase, "isolated performance case must be configured");
+    runPuzzleCase(puzzleCase);
+  });
+} else {
+  for (const puzzleCase of PUZZLE_CASES) {
+    test(`${puzzleCase.label} completes within a hard process deadline`, () => {
+      const result = runPerformanceTestModule(
+        import.meta.url,
+        puzzleCase.maxElapsedMs + PROCESS_STARTUP_ALLOWANCE_MS,
+        { [PERFORMANCE_CASE_ENV]: puzzleCase.id },
+      );
+      relayPerformanceJson(result.stdout);
+    });
+  }
+}

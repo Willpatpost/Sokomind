@@ -10,11 +10,15 @@ import { decodeActionLog } from "@/src/core/action-log";
 import type { SolutionStep } from "@/src/solver";
 import type { ProgressData } from "@/src/shared/progress";
 import {
+  hydrateOptimalCacheFromIDB,
   loadOptimalCache,
+  mergeOptimalCaches,
+  parseOptimalCache,
   saveOptimalCache,
   setOptimalRecord,
   type OptimalRecord,
 } from "@/src/shared/optimal-cache";
+import { STORAGE_KEYS } from "@/src/shared/storage";
 import {
   useExperience,
   type AudioCue,
@@ -48,6 +52,7 @@ function countLabel(count: number, singular: string): string {
 export function usePlayController(
   puzzle: PuzzleDefinition,
   actionLog?: string,
+  freshAttempt = false,
 ) {
   const { playCue, reducedMotion } = useExperience();
   const { navigate } = useRouter();
@@ -58,13 +63,19 @@ export function usePlayController(
   const {
     session,
     sessionRestored,
+    sessionPersistenceReady,
     sessionRef,
     progress,
     commitSession,
     recordSolvedSession,
     importProgress,
     resetProgress,
-  } = usePersistedPlay(puzzle, actionLog, handleSessionRestored);
+  } = usePersistedPlay(
+    puzzle,
+    actionLog,
+    handleSessionRestored,
+    freshAttempt,
+  );
   const [helpOpen, setHelpOpen] = useState(false);
   const [progressOpen, setProgressOpen] = useState(false);
   const [resetConfirmPuzzleId, setResetConfirmPuzzleId] =
@@ -78,6 +89,7 @@ export function usePlayController(
   const [deadlockedBoxIds, setDeadlockedBoxIds] = useState<ReadonlySet<string>>(
     EMPTY_BOX_SET,
   );
+  const hintCancelRef = useRef<() => void>(() => {});
   const resetConfirmOpen = resetConfirmPuzzleId === session.puzzle.id;
   const completionOpen = completionPuzzleId === session.puzzle.id;
   const solverOpen = solverPuzzleId === session.puzzle.id;
@@ -86,6 +98,37 @@ export function usePlayController(
     () => new Set(Object.keys(progress.completed)),
     [progress.completed],
   );
+
+  useEffect(() => {
+    let active = true;
+    void hydrateOptimalCacheFromIDB(loadOptimalCache()).then((hydrated) => {
+      if (!active) return;
+      setOptimalCache((current) => {
+        const merged = mergeOptimalCaches(current, hydrated);
+        return merged === current ? current : saveOptimalCache(merged).cache;
+      });
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== STORAGE_KEYS.optimal) return;
+      const incoming = parseOptimalCache(event.newValue);
+      if (event.newValue === null) {
+        setOptimalCache(incoming);
+        return;
+      }
+      setOptimalCache((current) => {
+        const merged = mergeOptimalCaches(incoming, current);
+        return merged === incoming ? incoming : saveOptimalCache(merged).cache;
+      });
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
 
   useEffect(() => {
     if (!toast) return;
@@ -152,6 +195,7 @@ export function usePlayController(
   );
 
   const timerPaused =
+    !sessionPersistenceReady ||
     session.solved ||
     completionOpen ||
     resetConfirmOpen ||
@@ -164,6 +208,7 @@ export function usePlayController(
     paused: timerPaused,
     persistKey: `sokomind:timer:${session.puzzle.id}`,
     restorePersisted: sessionRestored,
+    persistenceReady: sessionPersistenceReady,
   });
   const timerResetRef = useRef(timer.reset);
   useEffect(() => {
@@ -220,6 +265,7 @@ export function usePlayController(
   }, [commitSession, playCue, sessionRef, stopSolutionPlayback]);
 
   const performReset = useCallback(() => {
+    hintCancelRef.current();
     stopSolutionPlayback();
     setCompletionPuzzleId(null);
     setDeadlockedBoxIds(EMPTY_BOX_SET);
@@ -230,6 +276,7 @@ export function usePlayController(
   }, [commitSession, playCue, sessionRef, stopSolutionPlayback]);
 
   const requestReset = useCallback(() => {
+    hintCancelRef.current();
     if (sessionRef.current.moves === 0) {
       performReset();
     } else {
@@ -269,8 +316,7 @@ export function usePlayController(
   ) => {
     setOptimalCache((current) => {
       const next = setOptimalRecord(current, pid, record);
-      saveOptimalCache(next);
-      return next;
+      return saveOptimalCache(next).cache;
     });
   }, []);
 
@@ -282,6 +328,12 @@ export function usePlayController(
     onPlaySteps: playSolverSolution,
     onToast: setToast,
   });
+  useEffect(() => {
+    hintCancelRef.current = hint.cancel;
+    return () => {
+      hintCancelRef.current = () => {};
+    };
+  }, [hint.cancel]);
 
   // --- Keyboard ---
 
@@ -324,11 +376,13 @@ export function usePlayController(
     stopSolutionPlayback: () => stopSolutionPlayback(true),
     openHelp: () => {
       stopSolutionPlayback();
+      hint.cancel();
       setHelpOpen(true);
     },
     closeHelp: () => setHelpOpen(false),
     openProgress: () => {
       stopSolutionPlayback();
+      hint.cancel();
       setProgressOpen(true);
     },
     closeProgress: () => setProgressOpen(false),

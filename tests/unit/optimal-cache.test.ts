@@ -3,13 +3,16 @@ import test from "node:test";
 
 import {
   isOptimal,
+  loadOptimalCache,
+  mergeOptimalCaches,
   normalizeOptimalCache,
+  saveOptimalCache,
   setOptimalRecord,
   type OptimalCache,
   type OptimalRecord,
 } from "../../src/shared/optimal-cache.ts";
 
-const EMPTY_CACHE: OptimalCache = { version: 2, records: {} };
+const EMPTY_CACHE: OptimalCache = { version: 3, records: {} };
 
 test("isOptimal compares only the proven move count", () => {
   assert.equal(isOptimal(EMPTY_CACHE, "missing", 10), false);
@@ -33,31 +36,23 @@ test("setOptimalRecord creates, overwrites, and preserves entries", () => {
 
   assert.deepEqual(cache.records["p1"], replacement);
   assert.deepEqual(cache.records["p2"], other);
-  assert.equal(cache.version, 2);
+  assert.equal(cache.version, 3);
 });
 
-test("legacy migration keeps only records that prove minimum moves", () => {
-  const migrated = normalizeOptimalCache({
-    version: 1,
-    records: {
-      moveProof: { moves: 15, pushes: 8, objective: "moves" },
-      pushProof: { moves: 20, pushes: 5, objective: "pushes" },
-      combinedProof: { moves: 18, pushes: 6, objective: "combined" },
-      malformed: { moves: -1, pushes: 0, objective: "moves" },
-    },
-  });
-
-  assert.deepEqual(migrated, {
-    version: 2,
-    records: {
-      moveProof: { moves: 15, pushes: 8 },
-    },
-  });
+test("invalidates optimal records from pre-proof cache schemas", () => {
+  for (const version of [1, 2]) {
+    assert.deepEqual(normalizeOptimalCache({
+      version,
+      records: {
+        staleProof: { moves: 15, pushes: 8 },
+      },
+    }), EMPTY_CACHE);
+  }
 });
 
 test("current cache parsing drops malformed records safely", () => {
   const normalized = normalizeOptimalCache({
-    version: 2,
+    version: 3,
     records: {
       valid: { moves: 11, pushes: 4 },
       impossible: { moves: 2, pushes: 3 },
@@ -67,10 +62,66 @@ test("current cache parsing drops malformed records safely", () => {
   });
 
   assert.deepEqual(normalized, {
-    version: 2,
+    version: 3,
     records: {
       valid: { moves: 11, pushes: 4 },
     },
   });
   assert.deepEqual(normalizeOptimalCache({ version: 99, records: {} }), EMPTY_CACHE);
+});
+
+test("merges stale tab snapshots without losing either proof", () => {
+  const first = setOptimalRecord(EMPTY_CACHE, "p1", { moves: 20, pushes: 8 });
+  const second = setOptimalRecord(EMPTY_CACHE, "p2", { moves: 12, pushes: 5 });
+  const merged = mergeOptimalCaches(first, second);
+
+  assert.deepEqual(merged.records, {
+    p1: { moves: 20, pushes: 8 },
+    p2: { moves: 12, pushes: 5 },
+  });
+  assert.deepEqual(
+    mergeOptimalCaches(merged, {
+      version: 3,
+      records: { p1: { moves: 18, pushes: 9 } },
+    }).records.p1,
+    { moves: 18, pushes: 9 },
+  );
+});
+
+test("save re-reads storage before writing a stale tab snapshot", () => {
+  const values = new Map<string, string>();
+  const localStorage = {
+    get length() {
+      return values.size;
+    },
+    clear: () => values.clear(),
+    getItem: (key: string) => values.get(key) ?? null,
+    key: (index: number) => [...values.keys()][index] ?? null,
+    removeItem: (key: string) => {
+      values.delete(key);
+    },
+    setItem: (key: string, value: string) => {
+      values.set(key, value);
+    },
+  } satisfies Storage;
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { localStorage },
+  });
+
+  try {
+    const first = setOptimalRecord(EMPTY_CACHE, "p1", { moves: 20, pushes: 8 });
+    saveOptimalCache(first);
+    const staleSecond = setOptimalRecord(
+      EMPTY_CACHE,
+      "p2",
+      { moves: 12, pushes: 5 },
+    );
+    const saved = saveOptimalCache(staleSecond).cache;
+
+    assert.deepEqual(Object.keys(saved.records).sort(), ["p1", "p2"]);
+    assert.deepEqual(Object.keys(loadOptimalCache().records).sort(), ["p1", "p2"]);
+  } finally {
+    Reflect.deleteProperty(globalThis, "window");
+  }
 });

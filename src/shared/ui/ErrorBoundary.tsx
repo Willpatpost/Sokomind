@@ -34,14 +34,21 @@ export class ErrorBoundary extends Component<
     this.#hardNavigate();
   };
 
-  #handleReset = () => {
+  #handleReset = async () => {
     const confirmed = window.confirm(
       "Reset Sokomind's saved progress, current attempt, timers, and preferences? This cannot be undone.",
     );
     if (!confirmed) return;
 
-    resetAppData();
-    this.#hardNavigate();
+    try {
+      await resetAppData();
+      this.#hardNavigate();
+    } catch (error) {
+      console.error("Sokomind could not completely reset saved data:", error);
+      window.alert(
+        "Sokomind could not clear all browser data. The page was not reloaded because some saved data may remain.",
+      );
+    }
   };
 
   override render() {

@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { configureVitePuzzleLoader } from "./catalog/configure-vite-puzzle-loader";
 import { ExperienceProvider } from "./features/experience";
 import { installCrossTabAppResetListener } from "./shared/app-data-reset";
 import { notifyUpdateAvailable } from "./shared/sw-update-store";
@@ -9,6 +10,7 @@ import "./styles/globals.css";
 
 const root = document.getElementById("root");
 
+configureVitePuzzleLoader();
 installCrossTabAppResetListener();
 
 if (!root) {
@@ -33,7 +35,7 @@ if ("serviceWorker" in navigator && import.meta.env.PROD) {
       .register(workerUrl, { scope })
       .then((registration) => {
         if (registration.waiting) {
-          notifyUpdateAvailable();
+          notifyUpdateAvailable(registration.waiting);
         }
 
         registration.addEventListener("updatefound", () => {
@@ -41,7 +43,7 @@ if ("serviceWorker" in navigator && import.meta.env.PROD) {
           if (!newWorker) return;
           newWorker.addEventListener("statechange", () => {
             if (newWorker.state === "installed" && registration.waiting) {
-              notifyUpdateAvailable();
+              notifyUpdateAvailable(registration.waiting);
             }
           });
         });

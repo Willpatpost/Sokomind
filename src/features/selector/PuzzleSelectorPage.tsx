@@ -1,10 +1,17 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   getMetadataCollectionsForDifficulty,
   type PuzzleMetadata,
 } from "@/src/catalog/puzzle-metadata";
 import { useStoredProgress } from "@/src/shared/use-stored-progress";
-import { loadOptimalCache } from "@/src/shared/optimal-cache";
+import {
+  hydrateOptimalCacheFromIDB,
+  loadOptimalCache,
+  mergeOptimalCaches,
+  parseOptimalCache,
+  saveOptimalCache,
+} from "@/src/shared/optimal-cache";
+import { STORAGE_KEYS } from "@/src/shared/storage";
 import { useRouter } from "@/src/router";
 import type { Route } from "@/src/router";
 import { DIFFICULTY_LABELS } from "./selector-constants";
@@ -28,7 +35,38 @@ export function PuzzleSelectorPage({ route }: PuzzleSelectorPageProps) {
     () => new Set(Object.keys(progress.completed)),
     [progress],
   );
-  const optimalCache = useMemo(() => loadOptimalCache(), []);
+  const [optimalCache, setOptimalCache] = useState(loadOptimalCache);
+
+  useEffect(() => {
+    let active = true;
+    void hydrateOptimalCacheFromIDB(loadOptimalCache()).then((hydrated) => {
+      if (!active) return;
+      setOptimalCache((current) => {
+        const merged = mergeOptimalCaches(current, hydrated);
+        return merged === current ? current : saveOptimalCache(merged).cache;
+      });
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== STORAGE_KEYS.optimal) return;
+      const incoming = parseOptimalCache(event.newValue);
+      if (event.newValue === null) {
+        setOptimalCache(incoming);
+        return;
+      }
+      setOptimalCache((current) => {
+        const merged = mergeOptimalCaches(incoming, current);
+        return merged === incoming ? incoming : saveOptimalCache(merged).cache;
+      });
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
 
   useEffect(() => {
     if (route.page === "puzzles") {

@@ -3,6 +3,7 @@ import type { GameSession } from "@/src/core/model";
 import {
   type SolutionStep,
 } from "@/src/solver";
+import { hintUnsolvedMessage } from "./hint-messages";
 import {
   createHintWorkerConnection,
   HintWorkerTimeoutError,
@@ -177,7 +178,7 @@ export function useHintController({
           }, hintSteps.length * 200 + 300);
         } else if (result.status === "unsolved") {
           setPhase("idle");
-          onToast("This position might be stuck — try undoing some moves.");
+          onToast(hintUnsolvedMessage(result.reason));
         } else {
           setPhase("idle");
         }

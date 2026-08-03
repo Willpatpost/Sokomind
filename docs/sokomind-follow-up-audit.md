@@ -8,10 +8,11 @@ status and records the acceptance evidence for the current audit.
 ## Resolved in this pass
 
 Push-count, combined, and push tie-break objectives were removed from the
-public contract. A* and IDA* now optimize the same scalar move cost, and search
-state always includes the exact keeper cell. The optimal cache migrated to a
-move-only schema; legacy push and combined records are discarded because they
-cannot prove a minimum move count.
+public contract. A* and IDA* now optimize the same scalar move cost. Classic
+A* keys every state with the exact keeper cell; only algorithms whose objective
+does not depend on keeper walking may use reachable-region canonicalization.
+The optimal cache migrated to schema v3; legacy records are discarded because
+they predate that correctness fix and cannot prove a minimum move count.
 
 The adapter no longer estimates memory from cumulative generated states or a
 historical heap peak. It now tracks current and peak worker memory separately,
@@ -45,13 +46,12 @@ partial-state support.
 
 ## Solver and worker risks
 
-- The host has no independent watchdog for classic adapters. Their cancellation
-  and elapsed limits still depend on cooperative macrotask yields. Sokomind
-  Solver avoids this for its synchronous kernel by placing it in a terminable
-  nested worker.
-- Hint requests can overlap the full solver and are hard-coded to
-  `classic-astar`. The hint worker has no startup timeout, `error`, or
-  `messageerror` recovery after construction.
+- Classic browser adapters have a termination watchdog, and blocking
+  performance fixtures run in killable child processes. New synchronous solver
+  entry points must preserve one of those independently enforceable boundaries.
+- Hint requests remain hard-coded to `classic-astar`, but startup/result
+  watchdogs, fatal worker-event handling, and synchronous ownership
+  cancellation prevent them from silently overlapping the full solver.
 - The editor playtest is deliberately isolated from saved sessions and the
   full solver dialog. Solver-testing a custom draft would need an explicit
   adapter bridge rather than reusing play-page persistence.
@@ -82,13 +82,13 @@ partial-state support.
 - The active tracker retains open work for catalog sharding, bounded large-list
   rendering, shared solver-run arbitration, and incremental generated-engine
   modularization.
-- Aggregate coverage and bundle gates now block regressions, and the Grand Hall
-  benchmark is a blocking CI gate. A separate generated-engine coverage floor
-  is still required before the coverage item can be closed.
+- All-source, focused typed-source, generated-engine, and bundle gates now
+  block regressions. The Grand Hall benchmark is a blocking CI gate and its
+  synchronous work is isolated behind a hard process deadline.
 - Service-worker revisions, reload-fetched shell resources, cache validation,
-  pruning, and offline lifecycle tests are in place. Route-critical assets are
-  installed for offline refresh; optional Progress/Solver dialogs and both
-  solver workers remain runtime-loaded.
+  scope-safe pruning, real waiting-worker activation, and offline lifecycle
+  tests are in place. Route-critical assets are installed for offline refresh;
+  optional Progress/Solver dialogs and both solver workers remain runtime-loaded.
 
 ## Catalog/test coverage
 

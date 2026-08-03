@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
+import { Modal } from "@/src/shared/ui/Modal";
 import type { MotionPreference, ThemePreference } from "./experience-preferences";
 import { useExperience } from "./use-experience";
 import styles from "./ExperienceControls.module.css";
@@ -50,66 +51,13 @@ export function ExperienceControls({
     setThemePreference,
   } = useExperience();
   const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const panelId = useId();
   const titleId = useId();
   const effectsVolumeId = useId();
   const musicVolumeId = useId();
   const motionId = useId();
   const themeId = useId();
-
-  useEffect(() => {
-    if (!open) return;
-
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (target instanceof Node && !rootRef.current?.contains(target)) {
-        setOpen(false);
-      }
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      setOpen(false);
-      settingsButtonRef.current?.focus();
-    };
-
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
-
-  const panelRef = useRef<HTMLElement>(null);
-
-  const handlePanelKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLElement>) => {
-      if (event.key !== "Tab") return;
-      const panel = panelRef.current;
-      if (!panel) return;
-
-      const focusable = Array.from(
-        panel.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-        ),
-      );
-      if (focusable.length === 0) return;
-
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    },
-    [],
-  );
+  const settingsTriggerRef = useRef<HTMLButtonElement>(null);
 
   const rootClassName = className
     ? `${styles.controls} ${className}`
@@ -119,7 +67,6 @@ export function ExperienceControls({
     <div
       className={rootClassName}
       data-placement={placement}
-      ref={rootRef}
     >
       <button
         className={styles.iconButton}
@@ -140,23 +87,22 @@ export function ExperienceControls({
         aria-label="Sound and motion settings"
         aria-expanded={open}
         aria-controls={panelId}
-        ref={settingsButtonRef}
         onClick={() => setOpen((current) => !current)}
+        ref={settingsTriggerRef}
       >
         <SlidersIcon />
       </button>
 
       {open ? (
-        <section
-          className={styles.panel}
-          id={panelId}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby={titleId}
-          ref={panelRef}
-          onKeyDown={handlePanelKeyDown}
+        <Modal
+          className={styles.modal}
+          labelledBy={titleId}
+          onClose={() => setOpen(false)}
+          open
+          returnFocusRef={settingsTriggerRef}
         >
-          <div className={styles.panelHeading}>
+          <section className={styles.panel} id={panelId}>
+            <div className={styles.panelHeading}>
             <div>
               <p>Atmosphere</p>
               <h2 id={titleId}>Sound &amp; motion</h2>
@@ -164,14 +110,12 @@ export function ExperienceControls({
             <button
               className={styles.closeButton}
               type="button"
-              onClick={() => {
-                setOpen(false);
-                settingsButtonRef.current?.focus();
-              }}
+              data-autofocus
+              onClick={() => setOpen(false)}
             >
               Close
             </button>
-          </div>
+            </div>
 
           {!audioSupported ? (
             <p className={styles.supportNote}>
@@ -291,10 +235,11 @@ export function ExperienceControls({
             </select>
           </label>
 
-          <p className={styles.autoplayNote}>
-            Browsers require a click or key press before sound can begin.
-          </p>
-        </section>
+            <p className={styles.autoplayNote}>
+              Browsers require a click or key press before sound can begin.
+            </p>
+          </section>
+        </Modal>
       ) : null}
     </div>
   );

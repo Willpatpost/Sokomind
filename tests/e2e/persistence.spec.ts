@@ -177,3 +177,166 @@ test("a quota failure shows one warning and a later successful retry clears it",
   await expect(warning).toBeHidden();
   await expect.poll(() => storedProgressIds(page)).toEqual(["ultra-tiny"]);
 });
+
+test("restores a session saved only in IndexedDB before autosaving", async ({
+  page,
+}) => {
+  await page.goto("./");
+  await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("sokomind", 1);
+      request.onupgradeneeded = () => request.result.createObjectStore("kv");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("kv", "readwrite");
+      tx.objectStore("kv").put({
+        version: 1,
+        puzzleId: "ultra-tiny",
+        actionLog: "D",
+        updatedAt: "2026-08-03T12:00:00.000Z",
+      }, "sokomind.session.v1");
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+    sessionStorage.setItem("sokomind:timer:ultra-tiny", "12345");
+  });
+
+  await page.goto("./#/play/ultra-tiny");
+  await expect(page.getByTestId("moves-count")).toHaveText("1");
+  await expect(page.getByTestId("elapsed-time")).toHaveText("0:12");
+  await expect(page.getByText("Restored 1 saved move.")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => {
+    const raw = localStorage.getItem("sokomind.session.v1");
+    return raw ? (JSON.parse(raw) as { actionLog?: string }).actionLog : null;
+  })).toBe("D");
+  await expect.poll(() => page.evaluate(() =>
+    sessionStorage.getItem("sokomind:timer:ultra-tiny"))).toBe("12345");
+});
+
+test("navigating during a delayed IDB hydration flushes intervening moves", async ({
+  page,
+}) => {
+  await page.goto("./");
+  await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("sokomind", 1);
+      request.onupgradeneeded = () => {
+        if (!request.result.objectStoreNames.contains("kv")) {
+          request.result.createObjectStore("kv");
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const transaction = db.transaction("kv", "readwrite");
+    const store = transaction.objectStore("kv");
+    let holding = true;
+    const keepAlive = () => {
+      const request = store.get("__hydration-gate__");
+      request.onsuccess = () => {
+        if (holding) keepAlive();
+      };
+    };
+    keepAlive();
+    const testWindow = window as unknown as Window & {
+      __releaseHydrationGate: () => void;
+    };
+    testWindow.__releaseHydrationGate = () => {
+      holding = false;
+      transaction.oncomplete = () => db.close();
+    };
+  });
+
+  await page.evaluate(() => {
+    window.location.hash = "#/play/ultra-tiny";
+  });
+  await expect(page.getByRole("heading", { name: "First Steps" })).toBeVisible();
+  await page.getByRole("button", { name: "Move down" }).click();
+  await expect(page.getByTestId("moves-count")).toHaveText("1");
+
+  await page.evaluate(() => {
+    window.location.hash = "";
+  });
+  await expect(page.getByRole("heading", { name: "Sokomind" })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => {
+    const serialized = localStorage.getItem("sokomind.session.v1");
+    return serialized
+      ? (JSON.parse(serialized) as { actionLog?: string }).actionLog
+      : null;
+  })).toBe("D");
+
+  await page.evaluate(() => {
+    const testWindow = window as unknown as Window & {
+      __releaseHydrationGate: () => void;
+    };
+    testWindow.__releaseHydrationGate();
+  });
+});
+
+test("a legacy reset marker prevents stale pre-fence IDB hydration", async ({
+  page,
+}) => {
+  await page.goto("./");
+  await page.evaluate(async () => {
+    localStorage.setItem("sokomind.reset.v1", JSON.stringify({
+      writerId: "legacy-reset",
+      resetAt: "2026-08-02T12:00:00.000Z",
+    }));
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("sokomind", 1);
+      request.onupgradeneeded = () => {
+        if (!request.result.objectStoreNames.contains("kv")) {
+          request.result.createObjectStore("kv");
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction("kv", "readwrite");
+      transaction.objectStore("kv").put({
+        version: 1,
+        puzzleId: "ultra-tiny",
+        actionLog: "D",
+        updatedAt: "2026-08-02T11:00:00.000Z",
+      }, "sokomind.session.v1");
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+    db.close();
+  });
+
+  // A query change forces a new document so it captures the retained marker.
+  await page.goto("./?legacy-reset=1#/play/ultra-tiny");
+  await expect(page.getByRole("heading", { name: "First Steps" })).toBeVisible();
+  await expect(page.getByTestId("moves-count")).toHaveText("0");
+  await expect(page.getByText("Restored 1 saved move.")).toHaveCount(0);
+  await expect.poll(() => page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("sokomind", 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const values = await new Promise<{ generation: unknown; actionLog: unknown }>(
+      (resolve, reject) => {
+        const transaction = db.transaction("kv", "readonly");
+        const store = transaction.objectStore("kv");
+        const fence = store.get("sokomind.idb-reset-generation.v1");
+        const session = store.get("sokomind.session.v1");
+        transaction.oncomplete = () => {
+          resolve({
+            generation: fence.result,
+            actionLog: (session.result as { actionLog?: unknown } | undefined)
+              ?.actionLog,
+          });
+          db.close();
+        };
+        transaction.onerror = () => reject(transaction.error);
+      },
+    );
+    return values;
+  })).toEqual({ generation: 1, actionLog: "" });
+});

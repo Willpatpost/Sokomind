@@ -14,12 +14,14 @@ needed to add more. An algorithm becomes available by implementing
 | `classic-astar` | stable `g + h` heap | moves | minimum moves |
 | `classic-ida-star` | iterative deepening `f` contours | moves | minimum moves |
 
-All four classic adapters use the same push-macro graph. A successor consists of an exact
-shortest keeper walk followed by one legal push. Search state retains the true
-post-push keeper cell and a canonical signature that treats boxes with the same
-label as interchangeable. Because total movement is the sole objective, every
-state identity retains the exact keeper cell and every macro edge includes its
-shortest walking distance.
+All four classic adapters use the same push-macro graph. A successor consists of
+an exact shortest keeper walk followed by one legal push. Search nodes retain the
+true post-push keeper cell and a canonical signature that treats boxes with the
+same label as interchangeable. Because total movement is the sole objective,
+A* and IDA* include the exact keeper cell in state identity and every macro edge
+includes its shortest walking distance. DFS and Greedy may collapse equivalent
+keeper cells within one reachable region because they promise only a
+deterministic first route, not minimum movement.
 
 The A* lower bound is a label-aware minimum-cost assignment. For every matching
 box/goal pair, the cost is a reverse-push distance that respects walls and

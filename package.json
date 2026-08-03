@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22.13.0"
+    "node": "^22.13.0 || >=24.0.0"
   },
   "scripts": {
     "prepare:sokomind-solver": "node scripts/prepare-sokomind-engine.mjs",
@@ -18,11 +18,13 @@
     "preview": "vite preview",
     "preview:pages": "node scripts/preview-pages.mjs",
     "test": "npm run test:unit && npm run build && npm run test:static",
-    "test:browser": "npm run build && node scripts/run-browser-tests.mjs",
+    "test:browser": "npm run build && npm run test:browser:dist",
+    "test:browser:dist": "node scripts/run-browser-tests.mjs",
     "pretest:unit": "npm run check:sokomind-solver && npm run check:catalog",
     "test:unit": "node --experimental-strip-types --test tests/unit/*.test.ts",
-    "test:coverage": "npm run test:coverage:typed && npm run test:coverage:engine",
-    "test:coverage:typed": "node --experimental-strip-types --test --experimental-test-coverage --test-coverage-exclude=src/solver/implementations/sokomind-engine/engine.generated.js --test-coverage-lines=92 --test-coverage-functions=94 --test-coverage-branches=84 tests/unit/*.test.ts",
+    "test:coverage": "npm run test:coverage:typed && npm run test:coverage:typed:focused && npm run test:coverage:engine",
+    "test:coverage:typed": "c8 --all --extension .ts --extension .tsx --include \"src/**/*.ts\" --include \"src/**/*.tsx\" --exclude \"src/**/*.d.ts\" --exclude-after-remap --check-coverage --lines 58 --statements 58 --functions 80 --branches 78 --reporter text node --experimental-strip-types --test tests/unit/*.test.ts",
+    "test:coverage:typed:focused": "node --experimental-strip-types --test --experimental-test-coverage --test-coverage-include=src/**/*.ts --test-coverage-include=src/**/*.tsx --test-coverage-exclude=src/**/*.d.ts --test-coverage-lines=92 --test-coverage-functions=93 --test-coverage-branches=84 tests/unit/*.test.ts",
     "test:coverage:engine": "node --experimental-strip-types --test --experimental-test-coverage --test-coverage-include=src/solver/implementations/sokomind-engine/engine.generated.js --test-coverage-lines=41 --test-coverage-functions=56 --test-coverage-branches=63 tests/unit/*.test.ts",
     "test:unit:coverage": "npm run test:coverage",
     "test:solver:huge": "node --experimental-strip-types --test tests/performance/sokomind-solver-huge.test.ts",
@@ -45,6 +47,7 @@
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.2",
+    "c8": "11.0.0",
     "eslint": "10.8.0",
     "eslint-plugin-react-hooks": "7.1.1",
     "eslint-plugin-react-refresh": "0.5.3",

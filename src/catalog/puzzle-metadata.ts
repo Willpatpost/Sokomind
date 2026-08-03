@@ -1,5 +1,5 @@
 import metadata from "./puzzle-metadata.json" with { type: "json" };
-import { type Difficulty } from "../core/model.ts";
+import { DIFFICULTIES, type Difficulty } from "../core/model.ts";
 export {
   type PuzzleDifficulty,
   type CollectionInfo,
@@ -34,46 +34,92 @@ export interface PuzzleMetadata {
   readonly shard: string;
 }
 
-const rawTuples = metadata.puzzles as unknown as readonly unknown[];
-
-function isValidMetadataTuple(t: unknown): t is MetadataTuple {
-  return (
-    Array.isArray(t) &&
-    t.length === 8 &&
-    typeof t[0] === "string" &&
-    typeof t[1] === "string" &&
-    typeof t[2] === "string" &&
-    typeof t[3] === "number" &&
-    typeof t[4] === "number" &&
-    typeof t[5] === "number" &&
-    typeof t[6] === "string" &&
-    typeof t[7] === "string"
-  );
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-const tuples: readonly MetadataTuple[] = rawTuples.filter(isValidMetadataTuple);
+function metadataTupleError(value: unknown): string | undefined {
+  if (!Array.isArray(value) || value.length !== 8) {
+    return "must be an eight-field tuple";
+  }
+  if (typeof value[0] !== "string" || value[0].trim() === "") {
+    return "has an invalid puzzle id";
+  }
+  if (typeof value[1] !== "string" || value[1].trim() === "") {
+    return "has an invalid title";
+  }
+  if (
+    typeof value[2] !== "string" ||
+    !DIFFICULTIES.includes(value[2] as Difficulty)
+  ) {
+    return "has an invalid difficulty";
+  }
+  if (!Number.isInteger(value[3]) || (value[3] as number) < 0) {
+    return "has an invalid box count";
+  }
+  if (!Number.isInteger(value[4]) || (value[4] as number) <= 0) {
+    return "has an invalid width";
+  }
+  if (!Number.isInteger(value[5]) || (value[5] as number) <= 0) {
+    return "has an invalid height";
+  }
+  if (typeof value[6] !== "string" || value[6].trim() === "") {
+    return "has an invalid collection";
+  }
+  if (
+    typeof value[7] !== "string" ||
+    !/^puzzle-shard-\d{3}$/.test(value[7])
+  ) {
+    return "has an invalid shard name";
+  }
+  return undefined;
+}
 
-export const PUZZLE_METADATA: readonly PuzzleMetadata[] = Object.freeze(
-  tuples.map(([
-    id,
-    title,
-    difficulty,
-    boxes,
-    width,
-    height,
-    collection,
-    shard,
-  ]) => Object.freeze({
-    id,
-    title,
-    difficulty,
-    boxes,
-    width,
-    height,
-    collection,
-    shard,
-  })),
-);
+export function parsePuzzleMetadata(value: unknown): readonly PuzzleMetadata[] {
+  if (!isRecord(value) || value.version !== 1 || !Array.isArray(value.puzzles)) {
+    throw new Error("Puzzle metadata must contain version 1 and a puzzles array.");
+  }
+
+  const ids = new Set<string>();
+  return Object.freeze(value.puzzles.map((tuple, index) => {
+    const error = metadataTupleError(tuple);
+    const id = Array.isArray(tuple) && typeof tuple[0] === "string"
+      ? ` (${JSON.stringify(tuple[0])})`
+      : "";
+    if (error) {
+      throw new Error(`Puzzle metadata entry ${index}${id} ${error}.`);
+    }
+
+    const [
+      puzzleId,
+      title,
+      difficulty,
+      boxes,
+      width,
+      height,
+      collection,
+      shard,
+    ] = tuple as unknown as MetadataTuple;
+    if (ids.has(puzzleId)) {
+      throw new Error(
+        `Puzzle metadata entry ${index} duplicates puzzle id ${JSON.stringify(puzzleId)}.`,
+      );
+    }
+    ids.add(puzzleId);
+    return Object.freeze({
+      id: puzzleId,
+      title,
+      difficulty,
+      boxes,
+      width,
+      height,
+      collection,
+      shard,
+    });
+  }));
+}
+
+export const PUZZLE_METADATA = parsePuzzleMetadata(metadata);
 
 const metadataById = new Map(
   PUZZLE_METADATA.map((puzzle) => [puzzle.id, puzzle] as const),

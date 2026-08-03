@@ -1,6 +1,6 @@
 import type { PuzzleRecord } from "@/src/shared/progress";
 import { Modal } from "@/src/shared/ui/Modal";
-import { formatTime } from "./use-timer";
+import { formatTime } from "./timer-math";
 import styles from "./CompletionDialog.module.css";
 
 interface CompletionDialogProps {

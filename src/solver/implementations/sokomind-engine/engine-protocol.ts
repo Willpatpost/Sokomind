@@ -43,9 +43,16 @@ export interface EngineResultPayload {
 
 export type EngineSearchResult = EngineResultPayload;
 
+export interface EngineRecord {
+  readonly id: string;
+  readonly parent: string | null;
+  readonly segment: string | readonly string[];
+  readonly robot: readonly [number, number];
+}
+
 export interface EngineResult extends EngineResultPayload {
   readonly type: EngineResultType;
-  readonly records?: readonly unknown[];
+  readonly records?: readonly EngineRecord[];
 }
 
 export interface EngineRuntime {
@@ -61,32 +68,162 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return prototype === Object.prototype || prototype === null;
 }
 
-export function isEngineCommand(value: unknown): value is EngineCommand {
-  if (!isRecord(value)) return false;
-  return (
-    ENGINE_MODES.some((mode) => mode === value.mode) &&
-    isRecord(value.payload)
-  );
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
-function hasOptionalNumber(
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= 0;
+}
+
+function isPreparedBoardEnvelope(value: unknown): boolean {
+  return isRecord(value) &&
+    typeof value.schemaVersion === "number" &&
+    Number.isSafeInteger(value.schemaVersion) &&
+    value.schemaVersion > 0 &&
+    isNonEmptyString(value.boardContentKey);
+}
+
+function isLegacyState(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (
+    !Array.isArray(value.rows) ||
+    value.rows.length === 0 ||
+    !value.rows.every(
+      (row) => typeof row === "string" && row.length > 0,
+    )
+  ) {
+    return false;
+  }
+  if (
+    !Array.isArray(value.robot) ||
+    value.robot.length !== 2 ||
+    !value.robot.every(isNonNegativeSafeInteger)
+  ) {
+    return false;
+  }
+  if (
+    !Array.isArray(value.boxes) ||
+    !value.boxes.every(
+      (box) =>
+        Array.isArray(box) &&
+        box.length === 2 &&
+        isNonEmptyString(box[0]) &&
+        isNonEmptyString(box[1]),
+    )
+  ) {
+    return false;
+  }
+  return value.preparedBoard === undefined ||
+    isPreparedBoardEnvelope(value.preparedBoard);
+}
+
+export function isEngineCommand(value: unknown): value is EngineCommand {
+  if (!isRecord(value)) return false;
+  if (!ENGINE_MODES.some((mode) => mode === value.mode)) return false;
+  if (!isRecord(value.payload) || !isLegacyState(value.payload.state)) {
+    return false;
+  }
+  return value.mode !== "search" || isNonEmptyString(value.payload.algorithm);
+}
+
+const NON_NEGATIVE_INTEGER_FIELDS = Object.freeze([
+  "arenaStates",
+  "compactArenaAllocatedBytes",
+  "compactPathBytes",
+  "frontier",
+  "generated",
+  "moveVisited",
+  "peakFrontier",
+  "retained",
+  "visited",
+] as const);
+
+function hasOptionalNonNegativeInteger(
   value: Readonly<Record<string, unknown>>,
   key: string,
 ): boolean {
   return value[key] === undefined ||
-    (typeof value[key] === "number" && Number.isFinite(value[key]));
+    (typeof value[key] === "number" &&
+      Number.isSafeInteger(value[key]) &&
+      value[key] >= 0);
+}
+
+function hasOptionalString(
+  value: Readonly<Record<string, unknown>>,
+  key: string,
+): boolean {
+  return value[key] === undefined || typeof value[key] === "string";
+}
+
+function isEngineRecord(value: unknown): value is EngineRecord {
+  if (!isRecord(value)) return false;
+  const segment = value.segment;
+  const robot = value.robot;
+  return (
+    typeof value.id === "string" &&
+    value.id.length > 0 &&
+    (value.parent === null || typeof value.parent === "string") &&
+    (typeof segment === "string" ||
+      (Array.isArray(segment) &&
+        segment.every((step) => typeof step === "string"))) &&
+    Array.isArray(robot) &&
+    robot.length === 2 &&
+    robot.every(
+      (coordinate) =>
+        typeof coordinate === "number" &&
+        Number.isSafeInteger(coordinate) &&
+        coordinate >= 0,
+    )
+  );
+}
+
+function isTelemetryValue(
+  value: unknown,
+  seen: Set<unknown>,
+  depth: number,
+): boolean {
+  if (
+    value === undefined ||
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean"
+  ) {
+    return true;
+  }
+  if (typeof value === "number") return Number.isFinite(value);
+  if (depth >= 8 || seen.has(value)) return false;
+  if (Array.isArray(value)) {
+    seen.add(value);
+    const valid = value.every((entry) => isTelemetryValue(entry, seen, depth + 1));
+    seen.delete(value);
+    return valid;
+  }
+  if (!isRecord(value)) return false;
+  seen.add(value);
+  const valid = Object.values(value).every((entry) =>
+    isTelemetryValue(entry, seen, depth + 1)
+  );
+  seen.delete(value);
+  return valid;
+}
+
+function hasValidOptionalPerformance(
+  value: Readonly<Record<string, unknown>>,
+): boolean {
+  return value.performance === undefined ||
+    (isRecord(value.performance) &&
+      isTelemetryValue(value.performance, new Set<unknown>(), 0));
 }
 
 export function isEngineResult(value: unknown): value is EngineResult {
   if (!isRecord(value)) return false;
   if (!ENGINE_RESULT_TYPES.has(value.type)) return false;
-  if (
-    !hasOptionalNumber(value, "visited") ||
-    !hasOptionalNumber(value, "generated") ||
-    !hasOptionalNumber(value, "retained") ||
-    !hasOptionalNumber(value, "frontier") ||
-    !hasOptionalNumber(value, "peakFrontier")
-  ) {
+  if (NON_NEGATIVE_INTEGER_FIELDS.some(
+    (field) => !hasOptionalNonNegativeInteger(value, field),
+  )) {
     return false;
   }
   if (
@@ -97,14 +234,18 @@ export function isEngineResult(value: unknown): value is EngineResult {
   ) {
     return false;
   }
-  if (value.records !== undefined && !Array.isArray(value.records)) return false;
-  if (value.status !== undefined && typeof value.status !== "string") return false;
   if (
-    value.terminationReason !== undefined &&
-    typeof value.terminationReason !== "string"
+    value.records !== undefined &&
+    (!Array.isArray(value.records) || !value.records.every(isEngineRecord))
   ) {
     return false;
   }
+  if (value.type === "records" && !Array.isArray(value.records)) return false;
+  if (!hasOptionalString(value, "status")) return false;
+  if (!hasOptionalString(value, "terminationReason")) return false;
+  if (!hasOptionalString(value, "error")) return false;
+  if (value.cutoff !== undefined && typeof value.cutoff !== "boolean") return false;
+  if (!hasValidOptionalPerformance(value)) return false;
   return true;
 }
 
@@ -158,10 +299,23 @@ export function dispatchEngineCommand(
       return null;
     }
 
-    return {
+    const payload = runtime.search(value.payload);
+    if (!isRecord(payload)) {
+      return failedResult(
+        "worker-exception",
+        "Engine returned a malformed search result.",
+      );
+    }
+    const result = {
+      ...payload,
       type: "done",
-      ...runtime.search(value.payload),
     };
+    return isEngineResult(result)
+      ? result
+      : failedResult(
+          "worker-exception",
+          "Engine returned a malformed search result.",
+        );
   } catch (error) {
     return failedResult("worker-exception", serializeError(error));
   }

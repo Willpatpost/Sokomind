@@ -5,7 +5,7 @@ import {
   calculateElapsedTime,
   nextTimerUpdateDelay,
 } from "../../src/features/game/timer-math.ts";
-import { formatTime } from "../../src/features/game/use-timer.ts";
+import { formatTime } from "../../src/features/game/timer-math.ts";
 
 // ---------------------------------------------------------------------------
 // Simulates the timer's internal state machine using the pure functions from

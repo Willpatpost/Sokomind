@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { IDB_RESET_GENERATION_KEY } from "@/src/shared/idb-storage";
 
 async function solveOnePushWonder(page: Page) {
   for (const key of ["ArrowUp", "ArrowLeft", "ArrowUp", "ArrowRight"]) {
@@ -21,13 +22,31 @@ test("error recovery reloads safely and confirms exact-key data reset", async ({
 }) => {
   await page.goto("./#/play/ultra-tiny");
   await expect(page.getByRole("heading", { name: "First Steps" })).toBeVisible();
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     localStorage.setItem("sokomind.progress.v1", "owned-progress");
     localStorage.setItem("sokomind.optimal.v1", "owned-legacy");
     localStorage.setItem("sokomind-push-bounds-v1", "another-project");
     localStorage.setItem("unrelated", "keep");
     sessionStorage.setItem("sokomind:timer:ultra-tiny", "1234");
     sessionStorage.setItem("sokomind:timer-adjacent", "keep");
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("sokomind", 1);
+      request.onupgradeneeded = () => {
+        if (!request.result.objectStoreNames.contains("kv")) {
+          request.result.createObjectStore("kv");
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("kv", "readwrite");
+      tx.objectStore("kv").put({ stale: true }, "sokomind.session.v1");
+      tx.objectStore("kv").put({ stale: true }, "sokomind.optimal.v3");
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
   });
 
   // WebKit retains failed module loads for the Page lifetime. Fail a lazy route
@@ -70,8 +89,21 @@ test("error recovery reloads safely and confirms exact-key data reset", async ({
     timeout: 15_000,
   });
 
-  const stored = await page.evaluate(() => {
+  const stored = await page.evaluate(async () => {
     const rawProgress = localStorage.getItem("sokomind.progress.v1");
+    const idbKeys = await new Promise<IDBValidKey[]>((resolve, reject) => {
+      const request = indexedDB.open("sokomind", 1);
+      request.onsuccess = () => {
+        const db = request.result;
+        const keys = db.transaction("kv", "readonly").objectStore("kv").getAllKeys();
+        keys.onsuccess = () => {
+          db.close();
+          resolve(keys.result);
+        };
+        keys.onerror = () => reject(keys.error);
+      };
+      request.onerror = () => reject(request.error);
+    });
     return {
       progress: rawProgress ? JSON.parse(rawProgress) as unknown : null,
       legacy: localStorage.getItem("sokomind.optimal.v1"),
@@ -79,6 +111,7 @@ test("error recovery reloads safely and confirms exact-key data reset", async ({
       unrelated: localStorage.getItem("unrelated"),
       timer: sessionStorage.getItem("sokomind:timer:ultra-tiny"),
       adjacentTimer: sessionStorage.getItem("sokomind:timer-adjacent"),
+      idbKeys,
     };
   });
   expect(stored.progress).toMatchObject({
@@ -93,6 +126,7 @@ test("error recovery reloads safely and confirms exact-key data reset", async ({
     unrelated: "keep",
     timer: null,
     adjacentTimer: "keep",
+    idbKeys: [IDB_RESET_GENERATION_KEY],
   });
 });
 

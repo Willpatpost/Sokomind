@@ -59,7 +59,8 @@ checks that:
 - `.nojekyll`, the favicon, and social image are copied;
 - the client bundle contains the playable application;
 - no Cloudflare or server-build coupling remains;
-- route bundles stay within reviewed gzip budgets;
+- cold-route eager dependency closures, associated styles, and the first Play
+  board payload stay within reviewed gzip budgets;
 - the Home dependency closure does not include board payloads;
 - generated board shards are runtime-classified and each remains below its
   reviewed gzip budget.
@@ -74,7 +75,9 @@ updates, modal input isolation, explicit and system motion policies, Grand Hall
 deep links, 50-row catalog pagination, mobile Help/selector access, control
 ordering, completion feedback, worker discovery, solver cancellation, and
 verified solution playback. A service-worker project exercises runtime cache
-fill, offline direct Play, navigation-404 safety, and generation replacement.
+fill, offline direct Play, navigation-404 safety, paired worker/manifest
+generation replacement, and rejection of a cross-build manifest while the
+known-good cache remains active.
 Axe scans representative light/dark views and solver controls against WCAG
 A/AA rules.
 
@@ -91,11 +94,17 @@ major-version automated fixes.
 
 ### Coverage and performance gates
 
-`npm run test:coverage` enforces independent non-regression floors for typed
-application code and the vendored generated engine, so aggregate gains cannot
-hide a drop at either boundary. `test:solver:multi` covers representative
-difficulty tiers; `test:solver:huge` separately gates Grand Hall discovery,
-rewrite, orientation parity, replay validity, and total wall-clock budgets.
+`npm run test:coverage` enforces three independent non-regression gates. The
+`c8 --all` pass includes every TypeScript and TSX source file, including files
+that no test imports. A focused typed-source pass keeps a higher floor for code
+exercised by the unit suite, while the generated-engine pass prevents aggregate
+gains from hiding a drop at the vendored boundary.
+
+`test:solver:multi` covers representative difficulty tiers;
+`test:solver:huge` separately gates Grand Hall discovery, rewrite, orientation
+parity, replay validity, and total wall-clock budgets. Each synchronous solver
+case runs in a child process that the parent can terminate at its deadline, so
+an event-loop-blocking regression cannot hang CI indefinitely.
 
 ### Solver quality
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { formatTime } from "../../src/features/game/use-timer.ts";
+import { formatTime } from "../../src/features/game/timer-math.ts";
 
 describe("formatTime", () => {
   it("formats zero as 0:00", () => {

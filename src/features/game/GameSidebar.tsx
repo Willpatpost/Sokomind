@@ -1,7 +1,7 @@
 import { memo } from "react";
 import type { Direction, GameSession } from "@/src/core";
 import type { PuzzleRecord } from "@/src/shared/progress";
-import { formatTime } from "./use-timer";
+import { formatTime } from "./timer-math";
 import { GameControls } from "./GameControls";
 import styles from "./GameSidebar.module.css";
 

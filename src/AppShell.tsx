@@ -52,10 +52,14 @@ function LoadingFallback() {
 }
 
 export function AppShell() {
-  const { route } = useRouter();
+  const { previousRoute, route } = useRouter();
   const announcerRef = useRef<HTMLDivElement>(null);
   const identity = routeIdentity(route);
   const previousIdentityRef = useRef(identity);
+  const freshPlayAttempt =
+    route.page === "play" &&
+    previousRoute?.page === "play" &&
+    previousRoute.puzzleId !== route.puzzleId;
 
   useEffect(() => {
     if (previousIdentityRef.current === identity) return;
@@ -136,6 +140,7 @@ export function AppShell() {
               key={`${route.puzzleId}:${route.actionLog ?? ""}`}
               puzzleId={route.puzzleId}
               actionLog={route.actionLog}
+              freshAttempt={freshPlayAttempt}
             />
           )}
           {route.page === "editor" && <EditorPage customData={route.customData} />}
